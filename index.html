@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLOM Notes</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Ctext x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='white'%3ES%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div id="auth" class="auth" hidden>
+  <form id="authForm" class="auth-card" autocomplete="on">
+    <div class="brand">SLOM<span>Notes</span></div>
+    <p id="authMsg" class="muted"></p>
+    <label id="nameRow" hidden>Nome<input id="aName" autocomplete="name"></label>
+    <label>Usuário<input id="aUser" required autocomplete="username" autocapitalize="none"></label>
+    <label>Senha<input id="aPass" type="password" required autocomplete="current-password"></label>
+    <label id="pass2Row" hidden>Confirmar senha<input id="aPass2" type="password" autocomplete="new-password"></label>
+    <div id="authErr" class="err" role="alert"></div>
+    <button class="btn primary" id="authBtn">Entrar</button>
+  </form>
+</div>
+
+<div id="app" class="app" hidden>
+  <aside id="side" class="side">
+    <div class="side-head">
+      <b id="meName"></b>
+      <button class="icon" id="newRoot" title="Nova página">＋</button>
+    </div>
+    <input id="search" class="search" placeholder="Buscar páginas…" type="search">
+    <nav id="tree" class="tree"></nav>
+    <div class="side-foot">
+      <button class="link" id="trashBtn">🗑 Lixeira</button>
+      <button class="link" id="usersBtn" hidden>👥 Usuários</button>
+      <button class="link" id="pwBtn">🔑 Alterar senha</button>
+      <button class="link" id="themeBtn">◐ Tema</button>
+      <button class="link" id="logoutBtn">⎋ Sair</button>
+    </div>
+  </aside>
+  <div id="scrim" class="scrim"></div>
+  <main class="main">
+    <header class="top">
+      <button class="icon menu" id="menuBtn" aria-label="Menu">☰</button>
+      <div id="crumbs" class="crumbs"></div>
+      <span id="status" class="status"></span>
+    </header>
+    <section id="view" class="view"></section>
+  </main>
+</div>
+
+<div id="slash" class="slash" hidden></div>
+<dialog id="dlg" class="dlg"></dialog>
+<script src="assets/app.js"></script>
+</body>
+</html>
