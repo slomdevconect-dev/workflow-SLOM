@@ -184,6 +184,34 @@ try {
             $s->execute([$u['id']]);
             out(['pages' => $s->fetchAll()]);
 
+        case 'links':
+            $u = needUser($user);
+            $s = $db->prepare('SELECT id, title, content FROM pages WHERE user_id = ? AND trashed = 0 ORDER BY id');
+            $s->execute([$u['id']]);
+            $rows = $s->fetchAll();
+            $byTitle = [];
+            foreach ($rows as $r) {
+                $k = mb_strtolower(trim($r['title']));
+                if ($k !== '' && !isset($byTitle[$k])) $byTitle[$k] = (int)$r['id'];
+            }
+            $edges = []; $seen = [];
+            foreach ($rows as $r) {
+                $list = json_decode($r['content'], true);
+                if (!is_array($list)) continue;
+                foreach ($list as $b) {
+                    if (!is_array($b) || !is_string($b['x'] ?? null)) continue;
+                    if (!preg_match_all('/\[\[([^\[\]\n]{1,200})\]\]/u', $b['x'], $m)) continue;
+                    foreach ($m[1] as $t) {
+                        $to = $byTitle[mb_strtolower(trim($t))] ?? null;
+                        $key = $r['id'] . '>' . $to;
+                        if ($to === null || $to === (int)$r['id'] || isset($seen[$key])) continue;
+                        $seen[$key] = 1;
+                        $edges[] = ['from' => (int)$r['id'], 'to' => $to];
+                    }
+                }
+            }
+            out(['edges' => $edges]);
+
         case 'page':
             $u = needUser($user);
             out(['page' => ownPage($db, (int)$u['id'], (int)($_GET['id'] ?? 0))]);

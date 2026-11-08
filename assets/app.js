@@ -19,7 +19,7 @@ function h(tag, props = {}, ...kids) {
 }
 
 let CSRF = '', ME = null, pages = [], cur = null, blocks = [];
-let dirty = false, saveT = null, showingTrash = false;
+let dirty = false, saveT = null, showingTrash = false, edges = [];
 const expanded = new Set(JSON.parse(store.get('expanded') || '[]'));
 
 /* ---------- API ---------- */
@@ -88,7 +88,7 @@ async function startApp() {
   $('#auth').hidden = true; $('#app').hidden = false;
   $('#meName').textContent = ME.name;
   $('#usersBtn').hidden = !ME.is_admin;
-  await loadPages();
+  await loadPages(); await loadLinks();
   if (!pages.some(p => !p.trashed)) {
     const r = await api('page_create', { body: { title: 'Primeiros passos', icon: '👋', content: WELCOME() } });
     pages.push(r.page);
@@ -97,6 +97,7 @@ async function startApp() {
   const live = pages.filter(p => !p.trashed);
   await openPage((live.find(p => p.id === want) || live[0]).id, false);
 }
+async function loadLinks() { try { edges = (await api('links')).edges; } catch {} }
 async function loadPages() {
   pages = (await api('pages')).pages;
   renderTree();
@@ -107,6 +108,7 @@ const WELCOME = () => [
   { id: uid(), t: 'ul', x: 'Digite / em uma linha vazia para escolher o tipo de bloco.' },
   { id: uid(), t: 'ul', x: 'Atalhos: "# " título, "- " lista, "1. " numerada, "[] " tarefa, "> " citação.' },
   { id: uid(), t: 'ul', x: 'Alt + ↑ / ↓ move o bloco. Ctrl + S salva agora.' },
+  { id: uid(), t: 'ul', x: 'Conecte ideias digitando [[ e escolhendo uma página. Veja tudo no Grafo de ideias.' },
   { id: uid(), t: 'ul', x: 'Arraste páginas na barra lateral para aninhá-las.' },
   { id: uid(), t: 'todo', x: 'Criar minha primeira página', c: false },
   { id: uid(), t: 'todo', x: 'Conhecer o editor', c: true },
@@ -217,7 +219,7 @@ function renderCrumbs() {
 }
 function renderHome() {
   showingTrash = false; renderCrumbs(); renderTree();
-  $('#view').replaceChildren(h('div', { class: 'empty-view' }, h('h2', {}, 'Nenhuma página aberta'),
+  setView(h('div', { class: 'empty-view' }, h('h2', {}, 'Nenhuma página aberta'),
     h('button', { class: 'btn primary', onclick: () => createPage(null) }, 'Criar página')));
 }
 function renderPage() {
@@ -237,8 +239,8 @@ function renderPage() {
     if (last.t === 'p' && !last.x) return focusBlock(last.id, -1);
     const b = newBlock(); blocks.push(b); renderEditor(b.id, 0); touch();
   } }, 'Clique aqui para adicionar um bloco · digite / para ver as opções');
-  $('#view').replaceChildren(h('div', { class: 'doc' }, icon, title, h('div', { id: 'editor' }), hint));
-  renderEditor();
+  setView(h('div', { class: 'doc' }, icon, title, h('div', { id: 'editor' }), hint, h('div', { id: 'refs', class: 'refs' })));
+  renderEditor(); renderRefs();
   setStatus('');
 }
 function syncMeta() {
@@ -248,6 +250,7 @@ function syncMeta() {
 }
 
 /* ---------- salvamento ---------- */
+function setView(...nodes) { const v = $('#view'); v.classList.remove('flat'); v.replaceChildren(...nodes); }
 function setStatus(s) { $('#status').textContent = s; }
 function touch() {
   dirty = true; setStatus('Editando…');
@@ -259,7 +262,7 @@ async function flush(keepalive = false) {
   dirty = false; setStatus('Salvando…');
   try {
     await api('page_save', { body: { id: cur.id, title: cur.title, icon: cur.icon, content: blocks }, keepalive });
-    setStatus('Salvo');
+    setStatus('Salvo'); loadLinks().then(renderRefs);
   } catch (ex) { dirty = true; setStatus('Erro ao salvar'); toast(ex.message); }
 }
 addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); flush(); } });
@@ -317,7 +320,11 @@ function blockEl(b, n) {
     } }));
   }
   const t = h('div', { class: 'txt', contenteditable: 'true', spellcheck: 'true', 'data-ph': PH[b.t] || "Digite '/' para comandos" });
-  t.textContent = b.x;
+  paintLinks(t, b.x);
+  t.onclick = e => {
+    const w = e.target.closest && e.target.closest('.wl');
+    if (w && (e.ctrlKey || e.metaKey)) { e.preventDefault(); followLink(w.dataset.title); }
+  };
   t.oninput = () => onInput(b, t);
   t.onkeydown = e => onKey(e, b, t);
   t.onpaste = e => onPaste(e, b, t);
@@ -331,9 +338,16 @@ function focusBlock(id, pos) {
   if (!t) return;
   t.focus();
   if (t.tagName === 'TEXTAREA') { const p = pos == null || pos < 0 ? t.value.length : pos; t.setSelectionRange(p, p); return; }
-  const len = t.textContent.length, p = pos == null || pos < 0 ? len : Math.min(pos, len);
+  const len = t.textContent.length;
+  let left = pos == null || pos < 0 ? len : Math.min(pos, len);
   const r = document.createRange(), s = getSelection();
-  if (t.firstChild) r.setStart(t.firstChild, p); else r.setStart(t, 0);
+  const w = document.createTreeWalker(t, NodeFilter.SHOW_TEXT);
+  let n, placed = false;
+  while ((n = w.nextNode())) {
+    if (left <= n.length) { r.setStart(n, left); placed = true; break; }
+    left -= n.length;
+  }
+  if (!placed) r.setStart(t, t.childNodes.length);
   r.collapse(true); s.removeAllRanges(); s.addRange(r);
 }
 function caretPos(t) {
@@ -373,7 +387,10 @@ function onInput(b, t) {
     b.t = SHORTCUTS[b.x]; b.x = ''; if (b.t === 'todo') b.c = false;
     renderEditor(b.id, 0); touch(); return;
   }
-  if (b.x.startsWith('/') && !b.x.includes(' ')) openSlash(b, t); else closeSlash();
+  const lk = /\[\[([^\[\]\n]*)$/.exec(b.x.slice(0, caretPos(t)));
+  if (b.x.startsWith('/') && !b.x.includes(' ')) openSlash(b, t);
+  else if (lk) openLinkMenu(b, t, lk);
+  else closeSlash();
   touch();
 }
 function onKey(e, b, t) {
@@ -427,20 +444,43 @@ function onPaste(e, b, t) {
 const slash = { open: false, items: [], sel: 0, bid: null };
 function openSlash(b, t) {
   const q = b.x.slice(1).toLowerCase();
-  slash.items = TYPES.filter(x => !q || x.n.toLowerCase().includes(q) || x.kw.includes(q));
-  if (!slash.items.length) return closeSlash();
-  slash.open = true; slash.bid = b.id; slash.sel = Math.min(slash.sel, slash.items.length - 1);
+  showMenu(b, t, TYPES.filter(x => !q || x.n.toLowerCase().includes(q) || x.kw.includes(q))
+    .map(x => ({ ...x, run: bid => applyType(bid, x.k) })));
+}
+function openLinkMenu(b, t, m) {
+  const pos = caretPos(t), start = pos - m[0].length, q = m[1].trim().toLowerCase();
+  const items = pages.filter(p => !p.trashed && cur && p.id !== cur.id && (p.title || '').trim() && p.title.toLowerCase().includes(q))
+    .slice(0, 8).map(p => ({ g: p.icon || '📄', n: p.title, d: 'Linkar página', run: bid => insertLink(bid, start, pos, p.title) }));
+  const exact = pages.some(p => !p.trashed && (p.title || '').trim().toLowerCase() === q);
+  if (q && !exact) items.push({ g: '＋', n: `Criar “${m[1].trim()}”`, d: 'Nova página', run: async bid => {
+    try {
+      const r = await api('page_create', { body: { title: m[1].trim() } });
+      pages.push(r.page); renderTree();
+      insertLink(bid, start, pos, r.page.title);
+    } catch (ex) { toast(ex.message); }
+  } });
+  showMenu(b, t, items);
+}
+function insertLink(bid, start, pos, title) {
+  const b = blocks[idx(bid)]; if (!b) return;
+  const name = title.replace(/[\[\]\n]/g, ' ').trim();
+  b.x = b.x.slice(0, start) + `[[${name}]]` + b.x.slice(pos);
+  renderEditor(bid, start + name.length + 4); touch();
+}
+function showMenu(b, t, items) {
+  if (!items.length) return closeSlash();
+  slash.items = items; slash.open = true; slash.bid = b.id; slash.sel = Math.min(slash.sel, items.length - 1);
   const m = $('#slash'), rc = t.getBoundingClientRect();
   m.hidden = false;
   m.style.left = Math.min(rc.left, innerWidth - 262) + 'px';
-  const below = rc.bottom + 6, mh = Math.min(300, slash.items.length * 52 + 8);
+  const below = rc.bottom + 6, mh = Math.min(300, items.length * 52 + 8);
   m.style.top = (below + mh > innerHeight ? Math.max(8, rc.top - mh - 6) : below) + 'px';
-  m.replaceChildren(...slash.items.map((x, i) => {
+  m.replaceChildren(...items.map((x, i) => {
     const btn = h('button', { class: i === slash.sel ? 'on' : '', type: 'button' }, h('span', { class: 'g' }, x.g), h('span', {}, x.n, h('small', {}, x.d)));
     btn.onmousedown = ev => { ev.preventDefault(); pickSlash(i); };
     return btn;
   }));
-  m.children[slash.sel]?.scrollIntoView({ block: 'nearest' });
+  if (m.children[slash.sel]) m.children[slash.sel].scrollIntoView({ block: 'nearest' });
 }
 function closeSlash() { slash.open = false; slash.sel = 0; $('#slash').hidden = true; }
 function slashKey(e) {
@@ -456,16 +496,204 @@ function slashKey(e) {
   return false;
 }
 function pickSlash(i) {
-  const type = slash.items[i].k, b = blocks[idx(slash.bid)];
+  const it = slash.items[i], bid = slash.bid;
   closeSlash();
+  it.run(bid);
+}
+function applyType(bid, type) {
+  const b = blocks[idx(bid)];
   if (!b) return;
   b.t = type; b.x = ''; if (type === 'todo') b.c = false; else delete b.c;
   if (type === 'hr') {
     const nb = newBlock(), at = idx(b.id) + 1;
-    if (blocks[at]?.t === 'p' && !blocks[at].x) { renderEditor(blocks[at].id, 0); touch(); return; }
+    if (blocks[at] && blocks[at].t === 'p' && !blocks[at].x) { renderEditor(blocks[at].id, 0); touch(); return; }
     blocks.splice(at, 0, nb); renderEditor(nb.id, 0);
   } else renderEditor(b.id, 0);
   touch();
+}
+
+/* ---------- [[links]], backlinks e grafo ---------- */
+const findByTitle = t => pages.find(p => !p.trashed && (p.title || '').trim().toLowerCase() === t.trim().toLowerCase());
+function paintLinks(t, text) {
+  t.textContent = '';
+  const re = /\[\[([^\[\]\n]{1,200})\]\]/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) t.append(text.slice(last, m.index));
+    t.append(h('span', { class: 'wl' + (findByTitle(m[1]) ? '' : ' ghost'), 'data-title': m[1], title: 'Ctrl+clique para abrir' }, m[0]));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) t.append(text.slice(last));
+}
+async function followLink(title) {
+  const p = findByTitle(title);
+  if (p) return openPage(p.id);
+  try {
+    const r = await api('page_create', { body: { title: title.trim() } });
+    pages.push(r.page); await openPage(r.page.id);
+  } catch (ex) { toast(ex.message); }
+}
+function renderRefs() {
+  const box = $('#refs'); if (!box || !cur) return;
+  const chip = id => {
+    const p = pages.find(x => x.id === id);
+    return p ? h('button', { class: 'chip', onclick: () => openPage(id) }, (p.icon || '📄') + ' ' + (p.title || 'Sem título')) : null;
+  };
+  const outs = [...new Set(edges.filter(e => e.from === cur.id).map(e => e.to))];
+  const ins = [...new Set(edges.filter(e => e.to === cur.id).map(e => e.from))];
+  const kids = pages.filter(p => p.parent_id === cur.id && !p.trashed).map(p => p.id);
+  const sec = (name, ids) => ids.length ? h('div', { class: 'refsec' }, h('b', {}, name), ...ids.map(chip)) : null;
+  box.replaceChildren(...[sec('Links nesta página', outs), sec('Mencionada em', ins), sec('Subpáginas', kids)].filter(Boolean));
+}
+$('#graphBtn').onclick = () => showGraph();
+async function showGraph() {
+  await flush(); await loadPages(); await loadLinks();
+  cur = null; showingTrash = false; $('#crumbs').textContent = 'Grafo de ideias'; renderTree();
+  $('#app').classList.remove('open');
+  const view = $('#view');
+  view.classList.add('flat');
+  const canvas = h('canvas');
+  const q = h('input', { class: 'gsearch', type: 'search', placeholder: 'Destacar página…' });
+  const tc = h('input', { type: 'checkbox', checked: true });
+  let W = 0, H = 0, dpr = 1;
+  let tx = 0, ty = 0, k = 1, alpha = 1, hover = null, drag = null, pan = null, moved = 0, query = '';
+  const world = (cx, cy) => ({ x: (cx - tx) / k, y: (cy - ty) / k });
+  function zoomAt(cx, cy, f) {
+    const nk = Math.min(4, Math.max(.15, k * f)), w = world(cx, cy);
+    k = nk; tx = cx - w.x * k; ty = cy - w.y * k;
+  }
+  const zbtn = (l, f) => h('button', { class: 'btn', type: 'button', onclick: () => zoomAt(W / 2, H / 2, f) }, l);
+  const wrap = h('div', { class: 'graph' }, canvas,
+    h('div', { class: 'gtools' }, q, h('label', { class: 'gchk' }, tc, 'Hierarquia'), zbtn('＋', 1.25), zbtn('－', .8)),
+    h('div', { class: 'glegend' }, 'Linhas brilhantes: [[links]] · tracejadas: hierarquia · arraste os neurônios · clique para abrir'));
+  view.replaceChildren(wrap);
+  const ctx = canvas.getContext('2d');
+
+  const live = pages.filter(p => !p.trashed);
+  const N = live.map(p => ({ id: p.id, t: p.title || 'Sem título', x: (Math.random() - .5) * 400, y: (Math.random() - .5) * 400, vx: 0, vy: 0, deg: 0 }));
+  const byId = new Map(N.map(n => [n.id, n]));
+  const L = edges.map(e => ({ a: byId.get(e.from), b: byId.get(e.to) })).filter(l => l.a && l.b);
+  const T = live.filter(p => p.parent_id != null && byId.has(p.parent_id)).map(p => ({ a: byId.get(p.id), b: byId.get(p.parent_id) }));
+  [...L, ...T].forEach(l => { l.a.deg++; l.b.deg++; });
+  N.forEach(n => { n.r = 5 + Math.sqrt(n.deg) * 2.6; });
+  const adj = new Map(N.map(n => [n, new Set([n])]));
+  [...L, ...T].forEach(l => { adj.get(l.a).add(l.b); adj.get(l.b).add(l.a); });
+
+  function step() {
+    for (let i = 0; i < N.length; i++) for (let j = i + 1; j < N.length; j++) {
+      const a = N[i], b = N[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      const d2 = dx * dx + dy * dy + .5;
+      if (d2 > 160000) continue;
+      const d = Math.sqrt(d2), f = 2600 / d2 * alpha;
+      dx = dx / d * f; dy = dy / d * f;
+      a.vx -= dx; a.vy -= dy; b.vx += dx; b.vy += dy;
+    }
+    const spring = (l, rest, str) => {
+      const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const f = (d - rest) * str * alpha, fx = dx / d * f, fy = dy / d * f;
+      l.a.vx += fx; l.a.vy += fy; l.b.vx -= fx; l.b.vy -= fy;
+    };
+    L.forEach(l => spring(l, 110, .06));
+    if (tc.checked) T.forEach(l => spring(l, 80, .04));
+    N.forEach(n => {
+      n.vx -= n.x * .004 * alpha; n.vy -= n.y * .004 * alpha;
+      if (n === drag) { n.vx = n.vy = 0; return; }
+      n.vx *= .82; n.vy *= .82; n.x += n.vx; n.y += n.vy;
+    });
+    alpha = Math.max(alpha * .985, .015);
+  }
+  function fit() {
+    if (!N.length) return;
+    const xs = N.map(n => n.x), ys = N.map(n => n.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    k = Math.min(1.4, W / (maxX - minX + 160), H / (maxY - minY + 160));
+    tx = W / 2 - (maxX + minX) / 2 * k; ty = H / 2 - (maxY + minY) / 2 * k;
+  }
+  function resize() {
+    dpr = devicePixelRatio || 1; W = wrap.clientWidth; H = wrap.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr; canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  }
+  const css = n => getComputedStyle(root).getPropertyValue(n).trim();
+  const hit = (cx, cy) => {
+    const w = world(cx, cy); let best = null, bd = 1e9;
+    N.forEach(n => { const d = Math.hypot(n.x - w.x, n.y - w.y); if (d < n.r + 6 / k && d < bd) { best = n; bd = d; } });
+    return best;
+  };
+  function draw(time) {
+    const acc = css('--acc'), fg = css('--fg'), mut = css('--mut'), line = css('--line');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    ctx.translate(tx, ty); ctx.scale(k, k);
+    const qq = query.trim().toLowerCase();
+    const active = n => (!hover || adj.get(hover).has(n)) && (!qq || n.t.toLowerCase().includes(qq));
+    if (tc.checked) {
+      ctx.setLineDash([4 / k, 5 / k]); ctx.lineWidth = 1 / k; ctx.strokeStyle = mut;
+      T.forEach(l => { ctx.globalAlpha = active(l.a) && active(l.b) ? .35 : .06; ctx.beginPath(); ctx.moveTo(l.a.x, l.a.y); ctx.lineTo(l.b.x, l.b.y); ctx.stroke(); });
+      ctx.setLineDash([]);
+    }
+    ctx.lineWidth = 1.5 / k; ctx.strokeStyle = acc; ctx.shadowColor = acc;
+    L.forEach((l, i) => {
+      const on = hover ? (l.a === hover || l.b === hover) : (!qq || (active(l.a) && active(l.b)));
+      ctx.globalAlpha = on ? .75 : .08; ctx.shadowBlur = on ? 8 : 0;
+      ctx.beginPath(); ctx.moveTo(l.a.x, l.a.y); ctx.lineTo(l.b.x, l.b.y); ctx.stroke();
+      if (on) { // pulso sináptico
+        const p = ((time / 2200) + i * .17) % 1;
+        ctx.shadowBlur = 12; ctx.globalAlpha = 1; ctx.fillStyle = acc;
+        ctx.beginPath(); ctx.arc(l.a.x + (l.b.x - l.a.x) * p, l.a.y + (l.b.y - l.a.y) * p, 2.2 / k, 0, 7); ctx.fill();
+      }
+    });
+    N.forEach(n => {
+      const on = active(n), linked = n.deg > 0;
+      ctx.globalAlpha = on ? 1 : .15;
+      ctx.shadowColor = acc; ctx.shadowBlur = on && linked ? 16 : 0;
+      ctx.fillStyle = linked ? acc : mut;
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0; ctx.lineWidth = 1.5 / k; ctx.strokeStyle = n === hover ? fg : line; ctx.stroke();
+      if (on && (k > .7 || n === hover || (hover && adj.get(hover).has(n)) || qq)) {
+        ctx.font = `${(n === hover ? 14 : 12) / k}px -apple-system,Segoe UI,sans-serif`;
+        ctx.textAlign = 'center'; ctx.fillStyle = fg; ctx.globalAlpha = .95;
+        ctx.fillText(n.t.length > 28 ? n.t.slice(0, 27) + '…' : n.t, n.x, n.y + n.r + 14 / k);
+      }
+    });
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  }
+  const ro = new ResizeObserver(resize); ro.observe(wrap);
+  function frame(time) {
+    if (!document.body.contains(canvas)) { ro.disconnect(); return; }
+    if (alpha > .016 || drag) step();
+    draw(time);
+    requestAnimationFrame(frame);
+  }
+  resize();
+  for (let i = 0; i < 220; i++) step();
+  alpha = .3; fit();
+  q.oninput = () => { query = q.value; };
+  tc.onchange = () => { alpha = .8; };
+  canvas.addEventListener('pointerdown', e => {
+    canvas.setPointerCapture(e.pointerId); moved = 0;
+    const r = canvas.getBoundingClientRect(), n = hit(e.clientX - r.left, e.clientY - r.top);
+    if (n) { drag = n; alpha = .5; } else pan = { x: e.clientX, y: e.clientY };
+  });
+  canvas.addEventListener('pointermove', e => {
+    const r = canvas.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top;
+    if (drag) {
+      const w = world(cx, cy);
+      moved += Math.abs(drag.x - w.x) + Math.abs(drag.y - w.y);
+      drag.x = w.x; drag.y = w.y; alpha = Math.max(alpha, .3);
+    } else if (pan) {
+      moved += Math.abs(e.clientX - pan.x) + Math.abs(e.clientY - pan.y);
+      tx += e.clientX - pan.x; ty += e.clientY - pan.y; pan = { x: e.clientX, y: e.clientY };
+    } else { hover = hit(cx, cy); canvas.style.cursor = hover ? 'pointer' : 'grab'; }
+  });
+  const up = () => { if (drag && moved < 4) openPage(drag.id); drag = null; pan = null; };
+  canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : .89);
+  }, { passive: false });
+  if (!L.length) wrap.append(h('div', { class: 'gempty' }, 'Ainda não há conexões. Digite [[ em qualquer bloco para ligar uma ideia a outra página.'));
+  requestAnimationFrame(frame);
 }
 
 /* ---------- lixeira ---------- */
@@ -483,7 +711,7 @@ $('#trashBtn').onclick = async () => {
       if (!await ask('Excluir definitivamente?', [], 'Excluir', `"${p.title || 'Sem título'}" e suas subpáginas serão apagadas para sempre.`)) return;
       try { await api('page_delete', { body: { id: p.id } }); await loadPages(); $('#trashBtn').click(); } catch (ex) { toast(ex.message); }
     } }, 'Excluir'))));
-  $('#view').replaceChildren(h('div', { class: 'doc' }, h('h1', { style: 'margin-top:30px' }, '🗑 Lixeira'), list));
+  setView(h('div', { class: 'doc' }, h('h1', { style: 'margin-top:30px' }, '🗑 Lixeira'), list));
   $('#app').classList.remove('open');
 };
 

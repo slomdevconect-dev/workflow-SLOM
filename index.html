@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SLOM Notes</title>
+<title>Workflow SLOM</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Ctext x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='white'%3ES%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="assets/app.css">
@@ -11,7 +11,7 @@
 <body>
 <div id="auth" class="auth" hidden>
   <form id="authForm" class="auth-card" autocomplete="on">
-    <div class="brand">SLOM<span>Notes</span></div>
+    <div class="brand">Workflow<span>SLOM</span></div>
     <p id="authMsg" class="muted"></p>
     <label id="nameRow" hidden>Nome<input id="aName" autocomplete="name"></label>
     <label>Usuário<input id="aUser" required autocomplete="username" autocapitalize="none"></label>
@@ -25,12 +25,13 @@
 <div id="app" class="app" hidden>
   <aside id="side" class="side">
     <div class="side-head">
-      <b id="meName"></b>
+      <div class="who"><b>Workflow SLOM</b><small id="meName"></small></div>
       <button class="icon" id="newRoot" title="Nova página">＋</button>
     </div>
     <input id="search" class="search" placeholder="Buscar páginas…" type="search">
     <nav id="tree" class="tree"></nav>
     <div class="side-foot">
+      <button class="link" id="graphBtn">🕸 Grafo de ideias</button>
       <button class="link" id="trashBtn">🗑 Lixeira</button>
       <button class="link" id="usersBtn" hidden>👥 Usuários</button>
       <button class="link" id="pwBtn">🔑 Alterar senha</button>
