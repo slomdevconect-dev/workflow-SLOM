@@ -19,7 +19,7 @@ function h(tag, props = {}, ...kids) {
 }
 
 let CSRF = '', ME = null, pages = [], cur = null, blocks = [];
-let dirty = false, saveT = null, showingTrash = false, edges = [];
+let dirty = false, saveT = null, showingTrash = false, edges = [], serverNow = 0;
 const expanded = new Set(JSON.parse(store.get('expanded') || '[]'));
 
 /* ---------- API ---------- */
@@ -38,13 +38,75 @@ async function api(a, { body, q = '', keepalive = false } = {}) {
   return j;
 }
 
-/* ---------- tema ---------- */
+/* ---------- icones ---------- */
+const ICONS = {
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  graph: '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.9 7.6-3.8M8.2 13.1l7.6 3.8"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14.5a5 5 0 0 1 4.5 5"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M15 8l3 3M17 6l2 2"/>',
+  palette: '<path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.9 2-2 0-.6-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7" r="1"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
+  chevR: '<path d="m9 6 6 6-6 6"/>',
+  chevL: '<path d="m15 6-6 6 6 6"/>',
+  chevD: '<path d="m6 9 6 6 6-6"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+};
+const svg = n => `<svg viewBox="0 0 24 24" width="1.25em" height="1.25em" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+const ico = n => { const e = document.createElement('span'); e.className = 'ico'; e.innerHTML = svg(n); return e; };
+document.querySelectorAll('[data-i]').forEach(e => { e.innerHTML = svg(e.dataset.i); });
+
+/* ---------- aparencia: temas, tamanho da letra, menu retratil ---------- */
 const root = document.documentElement;
-if (store.get('theme')) root.dataset.theme = store.get('theme');
-else root.dataset.theme = matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light';
+const THEMES = [
+  { id: 'light', n: 'Claro', bg: '#ffffff', fg: '#37352f', acc: '#2f6fed' },
+  { id: 'dark', n: 'Escuro', bg: '#191919', fg: '#e6e4df', acc: '#5b94ff' },
+  { id: 'midnight', n: 'Meia-noite', bg: '#0b1220', fg: '#dbe6ff', acc: '#4da3ff' },
+  { id: 'forest', n: 'Floresta', bg: '#0f1a14', fg: '#dcefe2', acc: '#4cd08a' },
+  { id: 'sunset', n: 'Pôr do sol', bg: '#1a1210', fg: '#f5e6df', acc: '#ff8a4c' },
+  { id: 'amethyst', n: 'Ametista', bg: '#17121f', fg: '#ece4f7', acc: '#b388ff' },
+  { id: 'paper', n: 'Papel', bg: '#f6f0e3', fg: '#3b3226', acc: '#b5651d' },
+  { id: 'rose', n: 'Rosa', bg: '#fff7f9', fg: '#43303a', acc: '#e0457b' },
+];
+const SIZES = [{ n: 'Normal', v: 16 }, { n: 'Grande', v: 18 }, { n: 'Maior', v: 20 }, { n: 'Máximo', v: 22 }];
+const applyTheme = id => { root.dataset.theme = id; store.set('theme', id); };
+const curSize = () => +store.get('fs') || 18;
+const applySize = v => { root.style.setProperty('--fs', v + 'px'); store.set('fs', String(v)); };
+const saved = store.get('theme');
+root.dataset.theme = THEMES.some(t => t.id === saved) ? saved : (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light');
+applySize(curSize());
+
+const appEl = $('#app');
+function setCollapsed(v) {
+  appEl.classList.toggle('collapsed', v);
+  store.set('collapsed', v ? '1' : '0');
+  const b = $('#collapseBtn');
+  b.innerHTML = svg(v ? 'chevL' : 'chevR');
+  b.title = b.ariaLabel = v ? 'Expandir menu' : 'Recolher menu';
+}
+$('#collapseBtn').onclick = () => setCollapsed(!appEl.classList.contains('collapsed'));
+$('#searchBtn').onclick = () => { setCollapsed(false); appEl.classList.add('open'); $('#search').focus(); };
+setCollapsed(store.get('collapsed') === '1');
+
 $('#themeBtn').onclick = () => {
-  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
-  store.set('theme', root.dataset.theme);
+  const grid = h('div', { class: 'themes' }, ...THEMES.map(t => {
+    const b = h('button', { type: 'button', class: 'theme' + (t.id === root.dataset.theme ? ' on' : '') },
+      h('span', { class: 'sw', style: `background:${t.bg};border-color:${t.acc}` }, h('i', { style: `background:${t.acc}` }), h('i', { style: `background:${t.fg}` })), t.n);
+    b.onclick = () => { applyTheme(t.id); grid.querySelectorAll('.theme').forEach(x => x.classList.toggle('on', x === b)); };
+    return b;
+  }));
+  const seg = h('div', { class: 'seg' }, ...SIZES.map(f => {
+    const b = h('button', { type: 'button', class: f.v === curSize() ? 'on' : '' }, f.n);
+    b.onclick = () => { applySize(f.v); seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+    return b;
+  }));
+  dlg.replaceChildren(h('form', { method: 'dialog' }, h('h3', {}, 'Aparência'),
+    h('b', { class: 'lbl' }, 'Tema'), grid, h('b', { class: 'lbl' }, 'Tamanho da letra'), seg,
+    h('div', { class: 'row2' }, h('button', { class: 'btn primary', value: 'ok' }, 'Pronto'))));
+  dlg.onclose = null; dlg.showModal();
 };
 
 /* ---------- autenticação ---------- */
@@ -165,7 +227,8 @@ async function startApp() {
 }
 async function loadLinks() { try { edges = (await api('links')).edges; } catch {} }
 async function loadPages() {
-  pages = (await api('pages')).pages;
+  const pr = await api('pages');
+  pages = pr.pages; serverNow = pr.now;
   renderTree();
 }
 const WELCOME = () => [
@@ -200,12 +263,12 @@ function renderTree() {
 function row(p, depth) {
   const hasKids = pages.some(x => x.parent_id === p.id && !x.trashed);
   const r = h('div', { class: 'row' + (cur && cur.id === p.id ? ' on' : ''), draggable: true, style: `padding-left:${4 + depth * 16}px` },
-    h('button', { class: 'tw', title: 'Expandir', onclick: ev => { ev.stopPropagation(); toggle(p.id); } }, hasKids ? (expanded.has(p.id) ? '▾' : '▸') : ''),
-    h('span', { class: 'ic' }, p.icon || '📄'),
+    h('button', { class: 'tw', title: 'Expandir', onclick: ev => { ev.stopPropagation(); toggle(p.id); } }, hasKids ? ico(expanded.has(p.id) ? 'chevD' : 'chevR') : null),
+    h('span', { class: 'ic' }, p.icon || ico('file')),
     h('span', { class: 'tt' }, p.title || 'Sem título'),
     h('span', { class: 'acts' },
-      h('button', { title: 'Nova subpágina', onclick: ev => { ev.stopPropagation(); createPage(p.id); } }, '＋'),
-      h('button', { title: 'Mover para a lixeira', onclick: ev => { ev.stopPropagation(); trashPage(p.id); } }, '🗑')));
+      h('button', { title: 'Nova subpágina', onclick: ev => { ev.stopPropagation(); createPage(p.id); } }, ico('plus')),
+      h('button', { title: 'Mover para a lixeira', onclick: ev => { ev.stopPropagation(); trashPage(p.id); } }, ico('trash'))));
   r.onclick = () => openPage(p.id);
   r.ondragstart = ev => { ev.dataTransfer.setData('text/plain', String(p.id)); ev.dataTransfer.effectAllowed = 'move'; };
   r.ondragover = ev => { ev.preventDefault(); r.classList.add('over'); };
@@ -771,13 +834,14 @@ $('#trashBtn').onclick = async () => {
   const trashed = pages.filter(p => p.trashed);
   if (!trashed.length) list.append(h('div', { class: 'muted' }, 'A lixeira está vazia.'));
   trashed.forEach(p => list.append(h('div', { class: 'item' },
-    h('span', {}, (p.icon || '📄') + ' ' + (p.title || 'Sem título')),
+    h('span', {}, (p.icon || '') + ' ' + (p.title || 'Sem título'),
+      h('small', {}, (d => d > 0 ? `Exclusão automática em ${d} dia${d > 1 ? 's' : ''}` : 'Será excluída em breve')(Math.ceil(((p.trashed_at || serverNow) + 604800 - serverNow) / 86400)))),
     h('button', { class: 'btn', onclick: async () => { await api('page_restore', { body: { id: p.id } }); await loadPages(); $('#trashBtn').click(); } }, 'Restaurar'),
     h('button', { class: 'btn', onclick: async () => {
       if (!await ask('Excluir definitivamente?', [], 'Excluir', `"${p.title || 'Sem título'}" e suas subpáginas serão apagadas para sempre.`)) return;
       try { await api('page_delete', { body: { id: p.id } }); await loadPages(); $('#trashBtn').click(); } catch (ex) { toast(ex.message); }
     } }, 'Excluir'))));
-  setView(h('div', { class: 'doc' }, h('h1', { style: 'margin-top:30px' }, '🗑 Lixeira'), list));
+  setView(h('div', { class: 'doc' }, h('h1', { style: 'margin-top:30px' }, 'Lixeira'), h('p', { class: 'muted' }, 'As páginas na lixeira são excluídas automaticamente após 7 dias.'), list));
   $('#app').classList.remove('open');
 };
 
@@ -797,12 +861,12 @@ function ask(title, fields, ok = 'OK', text = '') {
   });
 }
 $('#pwBtn').onclick = async () => {
-  const v = await ask('Alterar senha', [
-    { name: 'current', label: 'Senha atual', type: 'password', autocomplete: 'current-password', required: true },
-    { name: 'password', label: 'Nova senha (mín. 8)', type: 'password', autocomplete: 'new-password', required: true },
-  ], 'Alterar');
+  const v = await ask('Alterar senha', [], 'Enviar link', 'Por segurança, enviaremos um link de confirmação para o e-mail da sua conta. Nele você escolhe a nova senha.');
   if (!v) return;
-  try { await api('password', { body: v }); toast('Senha alterada'); } catch (ex) { toast(ex.message); }
+  try {
+    const r = await api('password_request', { body: {} });
+    toast('Enviamos o link para ' + r.email);
+  } catch (ex) { toast(ex.message); if (ex.status === 409) emailDialog(); }
 };
 $('#usersBtn').onclick = async () => {
   const { users } = await api('users');
@@ -838,7 +902,7 @@ function toast(msg) {
       try { await api('verify', { body: { token: vt } }); vOk = true; r = await api('me'); CSRF = r.csrf; }
       catch (ex) { vErr = ex.message; }
     }
-    ME = r.user;
+    ME = rt ? null : r.user;
     if (ME) { await startApp(); if (vOk) toast('E-mail confirmado!'); else if (vErr) toast(vErr); return; }
     showAuth(r.setup);
     if (rt) { resetToken = rt; setMode('reset'); }

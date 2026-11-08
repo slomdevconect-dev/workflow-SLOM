@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS attempts (ip TEXT NOT NULL, ts INTEGER NOT NULL);
 
 $cols = array_column($db->query('PRAGMA table_info(users)')->fetchAll(), 'name');
 if (!in_array('email', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN email TEXT COLLATE NOCASE');
+if (!in_array('sess_ver', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN sess_ver INTEGER NOT NULL DEFAULT 0');
+$pcols = array_column($db->query('PRAGMA table_info(pages)')->fetchAll(), 'name');
+if (!in_array('trashed_at', $pcols, true)) $db->exec('ALTER TABLE pages ADD COLUMN trashed_at INTEGER');
+$db->exec('UPDATE pages SET trashed_at = ' . time() . ' WHERE trashed = 1 AND trashed_at IS NULL');
 if (!in_array('email_verified', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0');
 $db->exec("
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -109,10 +113,20 @@ function sendVerify(PDO $db, int $uid, string $email): void {
     [$html, $text] = mail_template('Confirme seu e-mail', 'Para ativar sua conta no Workflow SLOM, confirme que este endereço de e-mail é seu. O link vale por 24 horas.', 'Confirmar e-mail', $url, 'Se você não criou uma conta, ignore esta mensagem.');
     if (!send_mail($email, 'Confirme seu e-mail — Workflow SLOM', $html, $text)) error_log('SLOM: falha ao enviar e-mail de confirmacao');
 }
-function sendReset(PDO $db, int $uid, string $email): void {
+function sendReset(PDO $db, int $uid, string $email, bool $change = false): void {
     $url = baseUrl() . '/?reset=' . tokenMake($db, $uid, 'reset', null, 3600);
-    [$html, $text] = mail_template('Redefinir senha', 'Recebemos um pedido para redefinir a senha da sua conta. O link vale por 1 hora e só pode ser usado uma vez.', 'Criar nova senha', $url, 'Se não foi você, ignore esta mensagem: sua senha continua a mesma.');
-    if (!send_mail($email, 'Redefinir senha — Workflow SLOM', $html, $text)) error_log('SLOM: falha ao enviar e-mail de redefinicao');
+    $title = $change ? 'Confirme a alteração de senha' : 'Redefinir senha';
+    $intro = $change
+        ? 'Você pediu para alterar a senha da sua conta no Workflow SLOM. Para confirmar que foi você, use o botão abaixo e escolha a nova senha. O link vale por 1 hora e só pode ser usado uma vez.'
+        : 'Recebemos um pedido para redefinir a senha da sua conta. O link vale por 1 hora e só pode ser usado uma vez.';
+    [$html, $text] = mail_template($title, $intro, 'Criar nova senha', $url, 'Se não foi você, ignore esta mensagem: sua senha continua a mesma.');
+    if (!send_mail($email, $title . ' — Workflow SLOM', $html, $text)) error_log('SLOM: falha ao enviar e-mail de senha');
+}
+
+const TRASH_DAYS = 7;
+function purgeTrash(PDO $db): void {
+    $db->prepare('DELETE FROM pages WHERE trashed = 1 AND trashed_at IS NOT NULL AND trashed_at < ?')
+       ->execute([time() - TRASH_DAYS * 86400]);
 }
 
 $action = $_GET['a'] ?? '';
@@ -130,11 +144,16 @@ $uid = (int)($_SESSION['uid'] ?? 0);
 
 function currentUser(PDO $db, int $uid): ?array {
     if (!$uid) return null;
-    $s = $db->prepare('SELECT id, username, name, is_admin, email, email_verified FROM users WHERE id = ?');
+    $s = $db->prepare('SELECT id, username, name, is_admin, email, email_verified, sess_ver FROM users WHERE id = ?');
     $s->execute([$uid]);
     return $s->fetch() ?: null;
 }
 $user = currentUser($db, $uid);
+if ($user && (int)($_SESSION['sv'] ?? -1) !== (int)$user['sess_ver']) {   // senha trocada: derruba sessoes antigas
+    $_SESSION = ['csrf' => $_SESSION['csrf']];
+    $user = null; $uid = 0;
+}
+if ($user) unset($user['sess_ver']);
 $userCount = (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn();
 
 if ($method === 'POST') {
@@ -153,7 +172,11 @@ function cleanPass(string $p): string {
     return $p;
 }
 function login(array $u): void {
+    global $db;
     session_regenerate_id(true);
+    $sv = $db->prepare('SELECT sess_ver FROM users WHERE id = ?');
+    $sv->execute([(int)$u['id']]);
+    $_SESSION['sv'] = (int)$sv->fetchColumn();
     $_SESSION['uid'] = (int)$u['id'];
     $_SESSION['csrf'] = bin2hex(random_bytes(16));
 }
@@ -165,7 +188,7 @@ function ownPage(PDO $db, int $uid, int $id): array {
     return $s->fetch() ?: fail('Página não encontrada', 404);
 }
 function setTrashed(PDO $db, int $id, int $flag): void {
-    $db->prepare('UPDATE pages SET trashed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$flag, $id]);
+    $db->prepare('UPDATE pages SET trashed = ?, trashed_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$flag, $flag ? time() : null, $id]);
     $kids = $db->prepare('SELECT id FROM pages WHERE parent_id = ?');
     $kids->execute([$id]);
     foreach ($kids->fetchAll(PDO::FETCH_COLUMN) as $k) setTrashed($db, (int)$k, $flag);
@@ -191,6 +214,7 @@ try {
             try { sendVerify($db, $newId, $email); } catch (Throwable $t) { error_log('SLOM: ' . $t->getMessage()); }
             $u = currentUser($db, $newId);
             login($u);
+            unset($u['sess_ver']);
             out(['user' => $u, 'csrf' => $_SESSION['csrf']]);
 
         case 'register':
@@ -242,7 +266,7 @@ try {
             $row = tokenUse($db, (string)($body['token'] ?? ''), 'reset');
             if (!$row) fail('Link inválido ou expirado. Peça uma nova redefinição.', 400);
             $pass = cleanPass((string)($body['password'] ?? ''));
-            $db->prepare('UPDATE users SET pass_hash = ?, email_verified = 1 WHERE id = ?')->execute([password_hash($pass, PASSWORD_DEFAULT), $row['user_id']]);
+            $db->prepare('UPDATE users SET pass_hash = ?, email_verified = 1, sess_ver = sess_ver + 1 WHERE id = ?')->execute([password_hash($pass, PASSWORD_DEFAULT), $row['user_id']]);
             $db->prepare('DELETE FROM tokens WHERE user_id = ?')->execute([$row['user_id']]);
             out(['ok' => true]);
 
@@ -275,7 +299,9 @@ try {
                 out(['error' => 'Confirme seu e-mail antes de entrar. Enviamos um link para ' . $row['email'] . '.', 'unverified' => true, 'email' => $row['email']], 403);
             $db->prepare('DELETE FROM throttle WHERE k IN (?, ?)')->execute(['login:' . $ip, 'login:id:' . $ident]);
             login($row);
-            out(['user' => currentUser($db, (int)$row['id']), 'csrf' => $_SESSION['csrf']]);
+            $cu = currentUser($db, (int)$row['id']);
+            unset($cu['sess_ver']);
+            out(['user' => $cu, 'csrf' => $_SESSION['csrf']]);
 
         case 'logout':
             $_SESSION = [];
@@ -300,20 +326,23 @@ try {
                ->execute([$username, mb_substr($name, 0, 80), password_hash($pass, PASSWORD_DEFAULT)]);
             out(['ok' => true]);
 
-        case 'password':
+        case 'password_request':
             $u = needUser($user);
-            $s = $db->prepare('SELECT pass_hash FROM users WHERE id = ?');
+            $s = $db->prepare('SELECT email, email_verified FROM users WHERE id = ?');
             $s->execute([$u['id']]);
-            if (!password_verify((string)($body['current'] ?? ''), (string)$s->fetchColumn())) fail('Senha atual incorreta', 403);
-            $new = cleanPass((string)($body['password'] ?? ''));
-            $db->prepare('UPDATE users SET pass_hash = ? WHERE id = ?')->execute([password_hash($new, PASSWORD_DEFAULT), $u['id']]);
-            out(['ok' => true]);
+            $r = $s->fetch();
+            if (!$r['email'] || !$r['email_verified']) fail('Confirme o e-mail da conta antes de alterar a senha.', 409);
+            throttle($db, 'pwreq:' . $u['id'], 3, 3600);
+            hit($db, 'pwreq:' . $u['id']);
+            sendReset($db, (int)$u['id'], $r['email'], true);
+            out(['ok' => true, 'email' => $r['email']]);
 
         case 'pages':
             $u = needUser($user);
-            $s = $db->prepare('SELECT id, parent_id, title, icon, position, trashed, updated_at FROM pages WHERE user_id = ? ORDER BY position, id');
+            purgeTrash($db);
+            $s = $db->prepare('SELECT id, parent_id, title, icon, position, trashed, trashed_at, updated_at FROM pages WHERE user_id = ? ORDER BY position, id');
             $s->execute([$u['id']]);
-            out(['pages' => $s->fetchAll()]);
+            out(['pages' => $s->fetchAll(), 'now' => time()]);
 
         case 'links':
             $u = needUser($user);

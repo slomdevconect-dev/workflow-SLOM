@@ -6,7 +6,7 @@
 <title>Workflow SLOM</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Ctext x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='white'%3ES%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="assets/app.css?v=3">
+<link rel="stylesheet" href="assets/app.css?v=4">
 </head>
 <body>
 <div id="auth" class="auth" hidden>
@@ -29,37 +29,41 @@
 </div>
 
 <div id="app" class="app" hidden>
-  <aside id="side" class="side">
-    <div class="side-head">
-      <div class="who"><b>Workflow SLOM</b><small id="meName"></small></div>
-      <button class="icon" id="newRoot" title="Nova página">＋</button>
-    </div>
-    <input id="search" class="search" placeholder="Buscar páginas…" type="search">
-    <nav id="tree" class="tree"></nav>
-    <div class="side-foot">
-      <button class="link" id="graphBtn">🕸 Grafo de ideias</button>
-      <button class="link" id="trashBtn">🗑 Lixeira</button>
-      <button class="link" id="usersBtn" hidden>👥 Usuários</button>
-      <button class="link" id="mailBtn">✉ E-mail da conta</button>
-      <button class="link" id="pwBtn">🔑 Alterar senha</button>
-      <button class="link" id="themeBtn">◐ Tema</button>
-      <button class="link" id="logoutBtn">⎋ Sair</button>
-    </div>
-  </aside>
-  <div id="scrim" class="scrim"></div>
   <main class="main">
     <div id="banner" class="banner" hidden><span>Confirme seu e-mail para proteger a conta e poder recuperar a senha.</span><button class="btn" id="bannerBtn">Confirmar e-mail</button></div>
     <header class="top">
-      <button class="icon menu" id="menuBtn" aria-label="Menu">☰</button>
       <div id="crumbs" class="crumbs"></div>
       <span id="status" class="status"></span>
+      <button class="icon menu" id="menuBtn" aria-label="Abrir menu" data-i="menu"></button>
     </header>
     <section id="view" class="view"></section>
   </main>
+  <div id="scrim" class="scrim"></div>
+  <aside id="side" class="side" aria-label="Menu">
+    <div class="side-head">
+      <button class="icon" id="collapseBtn" aria-label="Recolher menu"></button>
+      <div class="who"><b>Workflow SLOM</b><small id="meName"></small></div>
+    </div>
+    <div class="side-actions">
+      <button class="nav primary" id="newRoot" title="Nova página"><i data-i="plus"></i><span>Nova página</span></button>
+      <button class="nav" id="searchBtn" title="Buscar"><i data-i="search"></i><span>Buscar</span></button>
+      <button class="nav" id="graphBtn" title="Grafo de ideias"><i data-i="graph"></i><span>Grafo de ideias</span></button>
+    </div>
+    <input id="search" class="search" placeholder="Buscar páginas…" type="search" aria-label="Buscar páginas">
+    <nav id="tree" class="tree"></nav>
+    <div class="side-foot">
+      <button class="nav" id="trashBtn" title="Lixeira"><i data-i="trash"></i><span>Lixeira</span></button>
+      <button class="nav" id="usersBtn" title="Usuários" hidden><i data-i="users"></i><span>Usuários</span></button>
+      <button class="nav" id="mailBtn" title="E-mail da conta"><i data-i="mail"></i><span>E-mail da conta</span></button>
+      <button class="nav" id="pwBtn" title="Alterar senha"><i data-i="key"></i><span>Alterar senha</span></button>
+      <button class="nav" id="themeBtn" title="Aparência"><i data-i="palette"></i><span>Aparência</span></button>
+      <button class="nav" id="logoutBtn" title="Sair"><i data-i="logout"></i><span>Sair</span></button>
+    </div>
+  </aside>
 </div>
 
 <div id="slash" class="slash" hidden></div>
 <dialog id="dlg" class="dlg"></dialog>
-<script src="assets/app.js?v=3"></script>
+<script src="assets/app.js?v=4"></script>
 </body>
 </html>
