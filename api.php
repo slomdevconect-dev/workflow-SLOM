@@ -59,6 +59,9 @@ if (!in_array('sess_ver', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN 
 $pcols = array_column($db->query('PRAGMA table_info(pages)')->fetchAll(), 'name');
 if (!in_array('trashed_at', $pcols, true)) $db->exec('ALTER TABLE pages ADD COLUMN trashed_at INTEGER');
 $db->exec('UPDATE pages SET trashed_at = ' . time() . ' WHERE trashed = 1 AND trashed_at IS NULL');
+if (!in_array('disabled', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0');
+if (!in_array('last_login', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN last_login INTEGER');
+$db->exec('CREATE TABLE IF NOT EXISTS admin_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, admin_id INTEGER, action TEXT NOT NULL, target TEXT)');
 if (!in_array('email_verified', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0');
 $db->exec("
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -113,14 +116,15 @@ function sendVerify(PDO $db, int $uid, string $email): void {
     [$html, $text] = mail_template('Confirme seu e-mail', 'Para ativar sua conta no Workflow SLOM, confirme que este endereço de e-mail é seu. O link vale por 24 horas.', 'Confirmar e-mail', $url, 'Se você não criou uma conta, ignore esta mensagem.');
     if (!send_mail($email, 'Confirme seu e-mail — Workflow SLOM', $html, $text)) error_log('SLOM: falha ao enviar e-mail de confirmacao');
 }
-function sendReset(PDO $db, int $uid, string $email, bool $change = false): void {
-    $url = baseUrl() . '/?reset=' . tokenMake($db, $uid, 'reset', null, 3600);
-    $title = $change ? 'Confirme a alteração de senha' : 'Redefinir senha';
-    $intro = $change
-        ? 'Você pediu para alterar a senha da sua conta no Workflow SLOM. Para confirmar que foi você, use o botão abaixo e escolha a nova senha. O link vale por 1 hora e só pode ser usado uma vez.'
-        : 'Recebemos um pedido para redefinir a senha da sua conta. O link vale por 1 hora e só pode ser usado uma vez.';
-    [$html, $text] = mail_template($title, $intro, 'Criar nova senha', $url, 'Se não foi você, ignore esta mensagem: sua senha continua a mesma.');
-    if (!send_mail($email, $title . ' — Workflow SLOM', $html, $text)) error_log('SLOM: falha ao enviar e-mail de senha');
+function sendReset(PDO $db, int $uid, string $email, string $kind = 'reset'): void {
+    $url = baseUrl() . '/?reset=' . tokenMake($db, $uid, 'reset', null, $kind === 'invite' ? 259200 : 3600);
+    $copy = [
+        'reset' => ['Redefinir senha', 'Recebemos um pedido para redefinir a senha da sua conta. O link vale por 1 hora e só pode ser usado uma vez.', 'Criar nova senha', 'Se não foi você, ignore esta mensagem: sua senha continua a mesma.'],
+        'change' => ['Confirme a alteração de senha', 'Você pediu para alterar a senha da sua conta no Workflow SLOM. Para confirmar que foi você, use o botão abaixo e escolha a nova senha. O link vale por 1 hora e só pode ser usado uma vez.', 'Criar nova senha', 'Se não foi você, ignore esta mensagem: sua senha continua a mesma.'],
+        'invite' => ['Você foi convidado para o Workflow SLOM', 'Um administrador criou uma conta para você. Use o botão abaixo para definir sua senha e começar. O link vale por 3 dias.', 'Definir minha senha', 'Se você não esperava este convite, ignore esta mensagem.'],
+    ][$kind];
+    [$html, $text] = mail_template($copy[0], $copy[1], $copy[2], $url, $copy[3]);
+    if (!send_mail($email, $copy[0] . ' — Workflow SLOM', $html, $text)) error_log('SLOM: falha ao enviar e-mail de senha');
 }
 
 const TRASH_DAYS = 7;
@@ -144,12 +148,12 @@ $uid = (int)($_SESSION['uid'] ?? 0);
 
 function currentUser(PDO $db, int $uid): ?array {
     if (!$uid) return null;
-    $s = $db->prepare('SELECT id, username, name, is_admin, email, email_verified, sess_ver FROM users WHERE id = ?');
+    $s = $db->prepare('SELECT id, username, name, is_admin, email, email_verified, sess_ver, disabled FROM users WHERE id = ?');
     $s->execute([$uid]);
     return $s->fetch() ?: null;
 }
 $user = currentUser($db, $uid);
-if ($user && (int)($_SESSION['sv'] ?? -1) !== (int)$user['sess_ver']) {   // senha trocada: derruba sessoes antigas
+if ($user && ($user['disabled'] || (int)($_SESSION['sv'] ?? -1) !== (int)$user['sess_ver'])) {   // senha trocada: derruba sessoes antigas
     $_SESSION = ['csrf' => $_SESSION['csrf']];
     $user = null; $uid = 0;
 }
@@ -181,6 +185,14 @@ function login(array $u): void {
     $_SESSION['csrf'] = bin2hex(random_bytes(16));
 }
 function needUser(?array $u): array { return $u ?? fail('Não autenticado', 401); }
+function needAdmin(?array $u): array {
+    $u = needUser($u);
+    if (!$u['is_admin']) fail('Apenas administradores', 403);
+    return $u;
+}
+function adminLog(PDO $db, int $adminId, string $action, string $target): void {
+    $db->prepare('INSERT INTO admin_log (ts, admin_id, action, target) VALUES (?, ?, ?, ?)')->execute([time(), $adminId, $action, $target]);
+}
 
 function ownPage(PDO $db, int $uid, int $id): array {
     $s = $db->prepare('SELECT * FROM pages WHERE id = ? AND user_id = ?');
@@ -211,6 +223,7 @@ try {
             $db->prepare('INSERT INTO users (username, name, pass_hash, is_admin, email) VALUES (?, ?, ?, 1, ?)')
                ->execute([$email, mb_substr($name, 0, 80), password_hash($pass, PASSWORD_DEFAULT), $email]);
             $newId = (int)$db->lastInsertId();
+            $db->prepare('UPDATE users SET last_login = ? WHERE id = ?')->execute([time(), $newId]);
             try { sendVerify($db, $newId, $email); } catch (Throwable $t) { error_log('SLOM: ' . $t->getMessage()); }
             $u = currentUser($db, $newId);
             login($u);
@@ -295,9 +308,11 @@ try {
                 hit($db, 'login:' . $ip); hit($db, 'login:id:' . $ident);
                 fail('E-mail ou senha incorretos', 401);
             }
+            if ($row['disabled']) out(['error' => 'Esta conta está desativada. Fale com o administrador.'], 403);
             if ($row['email'] && !$row['email_verified'] && !$row['is_admin'])
                 out(['error' => 'Confirme seu e-mail antes de entrar. Enviamos um link para ' . $row['email'] . '.', 'unverified' => true, 'email' => $row['email']], 403);
             $db->prepare('DELETE FROM throttle WHERE k IN (?, ?)')->execute(['login:' . $ip, 'login:id:' . $ident]);
+            $db->prepare('UPDATE users SET last_login = ? WHERE id = ?')->execute([time(), $row['id']]);
             login($row);
             $cu = currentUser($db, (int)$row['id']);
             unset($cu['sess_ver']);
@@ -308,22 +323,77 @@ try {
             session_destroy();
             out(['ok' => true]);
 
-        case 'users':
-            $u = needUser($user);
-            if (!$u['is_admin']) fail('Apenas administradores', 403);
-            out(['users' => $db->query('SELECT id, username, name, is_admin FROM users ORDER BY id')->fetchAll()]);
+        case 'admin_users':
+            $u = needAdmin($user);
+            $rows = $db->query('SELECT u.id, u.name, u.username, u.email, u.email_verified, u.is_admin, u.disabled, u.created_at, u.last_login,
+                (SELECT COUNT(*) FROM pages p WHERE p.user_id = u.id AND p.trashed = 0) AS pages FROM users u ORDER BY u.id')->fetchAll();
+            $log = $db->query('SELECT l.ts, l.action, l.target, a.name AS admin FROM admin_log l LEFT JOIN users a ON a.id = l.admin_id ORDER BY l.id DESC LIMIT 30')->fetchAll();
+            out(['users' => $rows, 'log' => $log, 'me' => (int)$u['id']]);
 
-        case 'user_add':
-            $u = needUser($user);
-            if (!$u['is_admin']) fail('Apenas administradores', 403);
-            $username = cleanUsername((string)($body['username'] ?? ''));
-            $pass = cleanPass((string)($body['password'] ?? ''));
-            $name = trim((string)($body['name'] ?? '')) ?: $username;
-            $e = $db->prepare('SELECT 1 FROM users WHERE username = ?');
-            $e->execute([$username]);
-            if ($e->fetch()) fail('Esse usuário já existe');
-            $db->prepare('INSERT INTO users (username, name, pass_hash) VALUES (?, ?, ?)')
-               ->execute([$username, mb_substr($name, 0, 80), password_hash($pass, PASSWORD_DEFAULT)]);
+        case 'admin_invite':
+            $u = needAdmin($user);
+            $email = cleanEmail((string)($body['email'] ?? ''));
+            $name = trim((string)($body['name'] ?? '')) ?: strstr($email, '@', true);
+            $e = $db->prepare('SELECT 1 FROM users WHERE email = ? OR username = ?');
+            $e->execute([$email, $email]);
+            if ($e->fetch()) fail('Já existe uma conta com este e-mail');
+            $db->prepare('INSERT INTO users (username, name, pass_hash, email) VALUES (?, ?, ?, ?)')
+               ->execute([$email, mb_substr($name, 0, 80), password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT), $email]);
+            sendReset($db, (int)$db->lastInsertId(), $email, 'invite');
+            adminLog($db, (int)$u['id'], 'convidou', $email);
+            out(['ok' => true]);
+
+        case 'admin_action':
+            $u = needAdmin($user);
+            $id = (int)($body['id'] ?? 0);
+            $op = (string)($body['op'] ?? '');
+            $s = $db->prepare('SELECT * FROM users WHERE id = ?');
+            $s->execute([$id]);
+            $t = $s->fetch() ?: fail('Usuário não encontrado', 404);
+            $label = $t['email'] ?: $t['username'];
+            $self = $id === (int)$u['id'];
+            switch ($op) {
+                case 'toggle_admin':
+                    if ($self) fail('Você não pode alterar o próprio papel');
+                    $new = $t['is_admin'] ? 0 : 1;
+                    $db->prepare('UPDATE users SET is_admin = ? WHERE id = ?')->execute([$new, $id]);
+                    adminLog($db, (int)$u['id'], $new ? 'promoveu a administrador' : 'removeu de administrador', $label);
+                    break;
+                case 'disable':
+                    if ($self) fail('Você não pode desativar a própria conta');
+                    $db->prepare('UPDATE users SET disabled = 1, sess_ver = sess_ver + 1 WHERE id = ?')->execute([$id]);
+                    adminLog($db, (int)$u['id'], 'desativou', $label);
+                    break;
+                case 'enable':
+                    $db->prepare('UPDATE users SET disabled = 0 WHERE id = ?')->execute([$id]);
+                    adminLog($db, (int)$u['id'], 'reativou', $label);
+                    break;
+                case 'verify':
+                    if (!$t['email']) fail('Esta conta não tem e-mail');
+                    $db->prepare('UPDATE users SET email_verified = 1 WHERE id = ?')->execute([$id]);
+                    adminLog($db, (int)$u['id'], 'confirmou o e-mail de', $label);
+                    break;
+                case 'resend':
+                    if (!$t['email']) fail('Esta conta não tem e-mail');
+                    if ($t['email_verified']) fail('O e-mail já está confirmado');
+                    sendVerify($db, $id, $t['email']);
+                    adminLog($db, (int)$u['id'], 'reenviou a confirmação de e-mail para', $label);
+                    break;
+                case 'reset_link':
+                    if (!$t['email']) fail('Esta conta não tem e-mail');
+                    throttle($db, 'adminreset:' . $id, 5, 3600);
+                    hit($db, 'adminreset:' . $id);
+                    sendReset($db, $id, $t['email'], 'reset');
+                    adminLog($db, (int)$u['id'], 'enviou link de nova senha para', $label);
+                    break;
+                case 'delete':
+                    if ($self) fail('Você não pode excluir a própria conta');
+                    $db->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
+                    adminLog($db, (int)$u['id'], 'excluiu a conta de', $label);
+                    break;
+                default:
+                    fail('Operação inválida');
+            }
             out(['ok' => true]);
 
         case 'password_request':
@@ -334,7 +404,7 @@ try {
             if (!$r['email'] || !$r['email_verified']) fail('Confirme o e-mail da conta antes de alterar a senha.', 409);
             throttle($db, 'pwreq:' . $u['id'], 3, 3600);
             hit($db, 'pwreq:' . $u['id']);
-            sendReset($db, (int)$u['id'], $r['email'], true);
+            sendReset($db, (int)$u['id'], $r['email'], 'change');
             out(['ok' => true, 'email' => $r['email']]);
 
         case 'pages':

@@ -230,3 +230,36 @@ label input:focus,.dlg input:focus,.search:focus{outline:2px solid var(--acc);ou
 .side-head{flex-wrap:nowrap}
 .app.collapsed .side-head{flex-direction:column;gap:.5rem}
 @media(max-width:760px){.icongrid{grid-template-columns:repeat(5,1fr)}.logo-plate img{height:2.6rem}}
+
+/* ===== Administracao ===== */
+.doc.admin{max-width:70rem}
+.doc.admin h2{font-size:1.25rem;margin-top:2.2rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.7rem;margin:1.2rem 0}
+.stat{display:flex;align-items:center;gap:.8rem;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:.8rem 1rem}
+.stat b{font-size:1.5rem;line-height:1.1;display:block}
+.stat small{color:var(--mut)}
+.atools{display:flex;gap:.6rem;flex-wrap:wrap;margin:1rem 0}
+.asearch{flex:1;min-width:12rem;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:.6rem .8rem;color:var(--fg);font-size:1rem}
+.atools .btn{display:flex;align-items:center;gap:.4rem}
+.ulist{display:grid;gap:.6rem}
+.ucard{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1.1fr) auto;gap:1rem;align-items:center;border:1px solid var(--line);border-radius:12px;padding:.8rem 1rem;background:var(--bg)}
+.ucard.off{opacity:.6}
+.uinfo{display:grid;min-width:0}
+.uinfo small{color:var(--mut);overflow:hidden;text-overflow:ellipsis}
+.umeta{display:grid;gap:.1rem;font-size:.85rem;color:var(--mut)}
+.umeta .pi{margin-right:.2rem}
+.badges{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.35rem}
+.badge{font-size:.72rem;font-weight:600;padding:.12rem .55rem;border-radius:999px;background:var(--bg3);color:var(--fg)}
+.badge.acc{background:var(--acc);color:var(--accfg)}
+.badge.ok{background:color-mix(in srgb,#2fb36d 22%,var(--bg));color:#2fb36d}
+.badge.warn{background:color-mix(in srgb,#e0a21b 22%,var(--bg));color:#c98a00}
+.badge.err{background:color-mix(in srgb,var(--err) 20%,var(--bg));color:var(--err)}
+.badge.mut{color:var(--mut)}
+.uacts{display:flex;gap:.25rem;flex-wrap:wrap;justify-content:flex-end}
+.act{width:2.4rem;height:2.4rem;border-radius:8px;display:grid;place-items:center;background:#0b1220}
+.act:hover{outline:2px solid var(--acc)}
+.act .pi{width:1.5rem;height:1.5rem}
+.alog{display:grid;gap:.35rem;font-size:.9rem}
+.alog>div{display:flex;gap:.8rem;border-bottom:1px solid var(--line);padding:.3rem 0}
+.alog small{color:var(--mut);flex:none;min-width:7.5rem}
+@media(max-width:900px){.ucard{grid-template-columns:1fr}.uacts{justify-content:flex-start}}

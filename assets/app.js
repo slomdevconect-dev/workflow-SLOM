@@ -892,18 +892,75 @@ $('#pwBtn').onclick = async () => {
     toast('Enviamos o link para ' + r.email);
   } catch (ex) { toast(ex.message); if (ex.status === 409) emailDialog(); }
 };
-$('#usersBtn').onclick = async () => {
-  const { users } = await api('users');
-  const err = h('div', { class: 'err' });
-  const f = { username: h('input', { placeholder: 'usuário', autocomplete: 'off', required: true }), name: h('input', { placeholder: 'nome', autocomplete: 'off' }), password: h('input', { placeholder: 'senha (mín. 8)', type: 'password', autocomplete: 'new-password', required: true }) };
-  const form = h('form', { method: 'dialog' }, h('h3', {}, 'Usuários'),
-    h('div', { class: 'list' }, ...users.map(u => h('div', { class: 'item' }, h('span', {}, `${u.name} (${u.username})`), u.is_admin ? h('small', { class: 'muted' }, 'admin') : null))),
-    h('h3', { style: 'margin-top:12px' }, 'Adicionar'), f.username, f.name, f.password, err,
-    h('div', { class: 'row2' }, h('button', { class: 'btn', type: 'button', onclick: () => dlg.close() }, 'Fechar'), h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-      try { await api('user_add', { body: { username: f.username.value, name: f.name.value, password: f.password.value } }); dlg.close(); toast('Usuário criado'); } catch (ex) { err.textContent = ex.message; }
-    } }, 'Criar')));
-  dlg.replaceChildren(form); dlg.onclose = null; dlg.showModal();
-};
+$('#usersBtn').onclick = () => showAdmin();
+async function showAdmin() {
+  await flush(); cur = null; showingTrash = false;
+  $('#crumbs').textContent = 'Administração'; renderTree(); $('#app').classList.remove('open');
+  let data;
+  try { data = await api('admin_users'); } catch (ex) { return toast(ex.message); }
+  const users = data.users;
+  const fmt = t => t ? new Date(typeof t === 'number' ? t * 1000 : t.replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  const badge = (txt, k) => h('span', { class: 'badge ' + k }, txt);
+  const stat = (n, label, icon) => h('div', { class: 'stat' }, pic(icon, 'lg'), h('div', {}, h('b', {}, String(n)), h('small', {}, label)));
+  const run = async (u, op, msg, ask_) => {
+    if (ask_ && !await ask('Confirmar ação', [], 'Confirmar', ask_)) return;
+    try { await api('admin_action', { body: { id: u.id, op } }); toast(msg); showAdmin(); } catch (ex) { toast(ex.message); }
+  };
+  const list = h('div', { class: 'ulist' });
+  const q = h('input', { class: 'asearch', type: 'search', placeholder: 'Buscar por nome ou e-mail…', 'aria-label': 'Buscar contas' });
+  function card(u) {
+    const self = u.id === data.me, who = u.email || u.username;
+    const act = (ic, tip, fn, show = true) => show ? h('button', { class: 'act', title: tip, 'aria-label': tip, onclick: fn }, pic(ic)) : null;
+    return h('div', { class: 'ucard' + (u.disabled ? ' off' : '') },
+      h('div', { class: 'uinfo' }, h('b', {}, u.name), h('small', {}, who),
+        h('div', { class: 'badges' }, ...[
+          u.is_admin ? badge('Administrador', 'acc') : null,
+          u.email ? (u.email_verified ? badge('E-mail confirmado', 'ok') : badge('E-mail pendente', 'warn')) : badge('Sem e-mail', 'mut'),
+          u.disabled ? badge('Desativada', 'err') : null,
+          self ? badge('Você', 'mut') : null].filter(Boolean))),
+      h('div', { class: 'umeta' },
+        h('span', {}, pic('document', 'sm'), ` ${u.pages} página${u.pages === 1 ? '' : 's'}`),
+        h('span', {}, 'Criada em ' + fmt(u.created_at)),
+        h('span', {}, 'Último acesso: ' + fmt(u.last_login))),
+      h('div', { class: 'uacts' },
+        act('lock', 'Enviar link para criar nova senha', () => run(u, 'reset_link', 'Link enviado para ' + who), !!u.email),
+        act('bell', 'Reenviar confirmação de e-mail', () => run(u, 'resend', 'Confirmação reenviada'), !!u.email && !u.email_verified),
+        act('done', 'Marcar e-mail como confirmado', () => run(u, 'verify', 'E-mail confirmado', `Marcar o e-mail de ${who} como confirmado sem que a pessoa clique no link?`), !!u.email && !u.email_verified),
+        act('star', u.is_admin ? 'Remover de administrador' : 'Tornar administrador', () => run(u, 'toggle_admin', 'Papel atualizado', u.is_admin ? `Remover ${who} dos administradores?` : `Dar acesso de administrador a ${who}?`), !self),
+        act(u.disabled ? 'sun' : 'moon', u.disabled ? 'Reativar conta' : 'Desativar conta', () => run(u, u.disabled ? 'enable' : 'disable', u.disabled ? 'Conta reativada' : 'Conta desativada', u.disabled ? null : `Desativar ${who}? A pessoa será desconectada e não poderá entrar.`), !self),
+        act('trash', 'Excluir conta', () => run(u, 'delete', 'Conta excluída', `Excluir DEFINITIVAMENTE a conta de ${who} e todas as páginas dela? Isso não pode ser desfeito.`), !self)));
+  }
+  const renderList = () => {
+    const f = q.value.trim().toLowerCase();
+    const shown = users.filter(u => !f || (u.name + ' ' + (u.email || u.username)).toLowerCase().includes(f));
+    list.replaceChildren(...(shown.length ? shown.map(card) : [h('p', { class: 'muted' }, 'Nenhuma conta encontrada.')]));
+  };
+  q.oninput = renderList; renderList();
+  const invite = async () => {
+    const v = await ask('Convidar usuário', [
+      { name: 'name', label: 'Nome', maxlength: 80 },
+      { name: 'email', label: 'E-mail', type: 'email', autocomplete: 'off', required: true },
+    ], 'Enviar convite', 'A pessoa recebe um e-mail para definir a própria senha.');
+    if (!v) return;
+    try { await api('admin_invite', { body: v }); toast('Convite enviado para ' + v.email); showAdmin(); } catch (ex) { toast(ex.message); }
+  };
+  const total = users.reduce((n, u) => n + u.pages, 0);
+  const log = data.log.length
+    ? h('div', { class: 'alog' }, ...data.log.map(l => h('div', {}, h('small', {}, fmt(l.ts)), h('span', {}, `${l.admin || 'Administrador'} ${l.action} `, h('b', {}, l.target)))))
+    : h('p', { class: 'muted' }, 'Nenhuma ação registrada ainda.');
+  setView(h('div', { class: 'doc admin' },
+    h('h1', { class: 'ttl-ic' }, pic('settings', 'lg'), 'Administração'),
+    h('p', { class: 'muted' }, 'Gerencie as contas do Workflow SLOM. Por privacidade, administradores veem apenas dados da conta, nunca o conteúdo das páginas de outras pessoas.'),
+    h('div', { class: 'stats' },
+      stat(users.length, 'Contas', 'team'),
+      stat(users.filter(u => u.is_admin).length, 'Administradores', 'star'),
+      stat(users.filter(u => u.email && !u.email_verified).length, 'E-mail pendente', 'bell'),
+      stat(users.filter(u => u.disabled).length, 'Desativadas', 'moon'),
+      stat(total, 'Páginas (total)', 'document')),
+    h('div', { class: 'atools' }, q, h('button', { class: 'btn primary', onclick: invite }, pic('add', 'sm'), ' Convidar usuário')),
+    list,
+    h('h2', { class: 'ttl-ic' }, pic('checklist'), 'Registro de ações'), log));
+}
 
 let toastT;
 function toast(msg) {
