@@ -59,6 +59,18 @@ const svg = n => `<svg viewBox="0 0 24 24" width="1.25em" height="1.25em" fill="
 const ico = n => { const e = document.createElement('span'); e.className = 'ico'; e.innerHTML = svg(n); return e; };
 document.querySelectorAll('[data-i]').forEach(e => { e.innerHTML = svg(e.dataset.i); });
 
+/* ---------- icones da marca (assets/img/icons) ---------- */
+const ICON_NAMES = ["home", "board", "planner", "calendar", "checklist", "layers", "database", "team", "settings", "search", "bell", "bookmark", "star", "tag", "folder", "folder-plus", "file", "document", "image", "video", "add", "edit", "trash", "share", "download", "upload", "link", "external", "code", "terminal", "git", "done", "target", "flag", "trophy", "chart", "pie", "hourglass", "timer", "timer-play", "moon", "sun", "filter", "sort", "list", "grid", "gantt", "kanban", "note", "idea", "book", "brain", "stack", "notebook", "pen", "chain", "folder-star", "lock", "shield", "cloud-sync", "cloud-up", "cloud-down", "globe", "dev"];
+const IMG = 'assets/img/icons/';
+const pic = (n, c = '') => h('img', { class: ('pi ' + c).trim(), src: IMG + n + '.png', alt: '', draggable: 'false' });
+const pageIcon = ic => {
+  const m = /^i:(\d+)$/.exec(ic || '');
+  if (m && ICON_NAMES[+m[1]]) return pic(ICON_NAMES[+m[1]]);
+  return ic || null;
+};
+const DARK_THEMES = ['dark', 'midnight', 'forest', 'sunset', 'amethyst'];
+function syncThemeIcon() { const e = $('#themeIcon'); if (e) e.src = IMG + (DARK_THEMES.includes(root.dataset.theme) ? 'moon' : 'sun') + '.png'; }
+
 /* ---------- aparencia: temas, tamanho da letra, menu retratil ---------- */
 const root = document.documentElement;
 const THEMES = [
@@ -72,12 +84,13 @@ const THEMES = [
   { id: 'rose', n: 'Rosa', bg: '#fff7f9', fg: '#43303a', acc: '#e0457b' },
 ];
 const SIZES = [{ n: 'Normal', v: 16 }, { n: 'Grande', v: 18 }, { n: 'Maior', v: 20 }, { n: 'Máximo', v: 22 }];
-const applyTheme = id => { root.dataset.theme = id; store.set('theme', id); };
+const applyTheme = id => { root.dataset.theme = id; store.set('theme', id); syncThemeIcon(); };
 const curSize = () => +store.get('fs') || 18;
 const applySize = v => { root.style.setProperty('--fs', v + 'px'); store.set('fs', String(v)); };
 const saved = store.get('theme');
 root.dataset.theme = THEMES.some(t => t.id === saved) ? saved : (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light');
 applySize(curSize());
+syncThemeIcon();
 
 const appEl = $('#app');
 function setCollapsed(v) {
@@ -218,7 +231,7 @@ async function startApp() {
   updateBanner();
   await loadPages(); await loadLinks();
   if (!pages.some(p => !p.trashed)) {
-    const r = await api('page_create', { body: { title: 'Primeiros passos', icon: '👋', content: WELCOME() } });
+    const r = await api('page_create', { body: { title: 'Primeiros passos', icon: 'i:49', content: WELCOME() } });
     pages.push(r.page);
   }
   const want = +location.hash.slice(2) || +store.get('last');
@@ -264,11 +277,11 @@ function row(p, depth) {
   const hasKids = pages.some(x => x.parent_id === p.id && !x.trashed);
   const r = h('div', { class: 'row' + (cur && cur.id === p.id ? ' on' : ''), draggable: true, style: `padding-left:${4 + depth * 16}px` },
     h('button', { class: 'tw', title: 'Expandir', onclick: ev => { ev.stopPropagation(); toggle(p.id); } }, hasKids ? ico(expanded.has(p.id) ? 'chevD' : 'chevR') : null),
-    h('span', { class: 'ic' }, p.icon || ico('file')),
+    h('span', { class: 'ic' }, pageIcon(p.icon) || pic('file')),
     h('span', { class: 'tt' }, p.title || 'Sem título'),
     h('span', { class: 'acts' },
-      h('button', { title: 'Nova subpágina', onclick: ev => { ev.stopPropagation(); createPage(p.id); } }, ico('plus')),
-      h('button', { title: 'Mover para a lixeira', onclick: ev => { ev.stopPropagation(); trashPage(p.id); } }, ico('trash'))));
+      h('button', { title: 'Nova subpágina', onclick: ev => { ev.stopPropagation(); createPage(p.id); } }, pic('add')),
+      h('button', { title: 'Mover para a lixeira', onclick: ev => { ev.stopPropagation(); trashPage(p.id); } }, pic('trash'))));
   r.onclick = () => openPage(p.id);
   r.ondragstart = ev => { ev.dataTransfer.setData('text/plain', String(p.id)); ev.dataTransfer.effectAllowed = 'move'; };
   r.ondragover = ev => { ev.preventDefault(); r.classList.add('over'); };
@@ -315,6 +328,19 @@ async function trashPage(id) {
   } catch (ex) { toast(ex.message); }
 }
 $('#newRoot').onclick = () => createPage(null);
+$('#homeBtn').onclick = () => {
+  const p = pages.find(x => x.id === +store.get('last') && !x.trashed) || pages.find(x => !x.trashed);
+  p ? openPage(p.id) : renderHome();
+};
+function pickIcon() {
+  const choose = v => { cur.icon = v; touch(); syncMeta(); renderPage(); dlg.close(); };
+  const grid = h('div', { class: 'icongrid' }, ...ICON_NAMES.map((n, i) => h('button', { type: 'button', title: n, onclick: () => choose('i:' + i) }, pic(n))));
+  const em = h('input', { placeholder: 'ou digite um emoji e tecle Enter', maxlength: 8 });
+  em.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); choose(em.value.trim()); } };
+  dlg.replaceChildren(h('form', { method: 'dialog' }, h('h3', {}, 'Ícone da página'), grid, em,
+    h('div', { class: 'row2' }, h('button', { type: 'button', class: 'btn', onclick: () => choose('') }, 'Remover ícone'), h('button', { class: 'btn primary', value: 'cancel' }, 'Fechar'))));
+  dlg.onclose = null; dlg.showModal();
+}
 $('#search').oninput = renderTree;
 $('#menuBtn').onclick = () => $('#app').classList.toggle('open');
 $('#scrim').onclick = () => $('#app').classList.remove('open');
@@ -343,20 +369,17 @@ function renderCrumbs() {
   for (let p = pages.find(x => x.id === cur.id); p; p = pages.find(x => x.id === p.parent_id)) chain.unshift(p);
   chain.forEach((p, i) => {
     if (i) c.append(' / ');
-    c.append(i < chain.length - 1 ? h('a', { onclick: () => openPage(p.id) }, (p.icon || '') + ' ' + (p.title || 'Sem título')) : (p.icon || '') + ' ' + (p.title || 'Sem título'));
+    const label = [pageIcon(p.icon), ' ', p.title || 'Sem título'];
+    c.append(i < chain.length - 1 ? h('a', { onclick: () => openPage(p.id) }, ...label) : h('span', {}, ...label));
   });
 }
 function renderHome() {
   showingTrash = false; renderCrumbs(); renderTree();
-  setView(h('div', { class: 'empty-view' }, h('h2', {}, 'Nenhuma página aberta'),
+  setView(h('div', { class: 'empty-view' }, pic('folder-plus', 'xl'), h('h2', {}, 'Nenhuma página aberta'),
     h('button', { class: 'btn primary', onclick: () => createPage(null) }, 'Criar página')));
 }
 function renderPage() {
-  const icon = h('div', { class: 'page-ic' + (cur.icon ? '' : ' empty'), title: 'Alterar ícone', onclick: async () => {
-    const v = await ask('Ícone da página', [{ name: 'icon', label: 'Emoji (vazio remove)', value: cur.icon, maxlength: 8 }], 'Salvar');
-    if (!v) return;
-    cur.icon = v.icon.trim(); touch(); syncMeta(); renderPage();
-  } }, cur.icon || '＋ Ícone');
+  const icon = h('div', { class: 'page-ic' + (cur.icon ? '' : ' empty'), title: 'Alterar ícone', onclick: pickIcon }, pageIcon(cur.icon) || '＋ Ícone');
   const title = h('input', { class: 'title', placeholder: 'Sem título', value: cur.title, maxlength: 200, 'aria-label': 'Título' });
   title.oninput = () => { cur.title = title.value; syncMeta(); touch(); };
   title.onkeydown = e => {
@@ -380,7 +403,8 @@ function syncMeta() {
 
 /* ---------- salvamento ---------- */
 function setView(...nodes) { const v = $('#view'); v.classList.remove('flat'); v.replaceChildren(...nodes); }
-function setStatus(s) { $('#status').textContent = s; }
+const STATUS_ICON = { 'Salvo': 'done', 'Salvando…': 'cloud-sync', 'Erro ao salvar': 'flag' };
+function setStatus(s) { $('#status').replaceChildren(...(STATUS_ICON[s] ? [pic(STATUS_ICON[s], 'sm')] : []), s); }
 function touch() {
   dirty = true; setStatus('Editando…');
   clearTimeout(saveT); saveT = setTimeout(flush, 700);
@@ -401,16 +425,16 @@ addEventListener('pagehide', () => flush(true));
 /* ---------- editor de blocos ---------- */
 const newBlock = (t = 'p', x = '') => ({ id: uid(), t, x, ...(t === 'todo' ? { c: false } : {}) });
 const TYPES = [
-  { k: 'p', g: '¶', n: 'Texto', d: 'Parágrafo simples', kw: 'texto paragrafo text' },
+  { k: 'p', ic: 'document', g: '¶', n: 'Texto', d: 'Parágrafo simples', kw: 'texto paragrafo text' },
   { k: 'h1', g: 'H1', n: 'Título 1', d: 'Título grande', kw: 'titulo heading h1' },
   { k: 'h2', g: 'H2', n: 'Título 2', d: 'Título médio', kw: 'titulo heading h2' },
   { k: 'h3', g: 'H3', n: 'Título 3', d: 'Título pequeno', kw: 'titulo heading h3' },
-  { k: 'todo', g: '☑', n: 'Tarefa', d: 'Lista de tarefas', kw: 'todo tarefa checkbox' },
-  { k: 'ul', g: '•', n: 'Lista', d: 'Lista com marcadores', kw: 'lista bullet' },
+  { k: 'todo', ic: 'checklist', g: '☑', n: 'Tarefa', d: 'Lista de tarefas', kw: 'todo tarefa checkbox' },
+  { k: 'ul', ic: 'list', g: '•', n: 'Lista', d: 'Lista com marcadores', kw: 'lista bullet' },
   { k: 'ol', g: '1.', n: 'Lista numerada', d: 'Lista em ordem', kw: 'lista numerada number' },
-  { k: 'quote', g: '❝', n: 'Citação', d: 'Destaque de texto', kw: 'citacao quote' },
-  { k: 'callout', g: '💡', n: 'Destaque', d: 'Caixa de aviso', kw: 'destaque callout aviso' },
-  { k: 'code', g: '</>', n: 'Código', d: 'Bloco de código', kw: 'codigo code' },
+  { k: 'quote', ic: 'note', g: '❝', n: 'Citação', d: 'Destaque de texto', kw: 'citacao quote' },
+  { k: 'callout', ic: 'idea', g: '💡', n: 'Destaque', d: 'Caixa de aviso', kw: 'destaque callout aviso' },
+  { k: 'code', ic: 'code', g: '</>', n: 'Código', d: 'Bloco de código', kw: 'codigo code' },
   { k: 'hr', g: '—', n: 'Divisor', d: 'Linha horizontal', kw: 'divisor linha hr' },
 ];
 const SHORTCUTS = { '# ': 'h1', '## ': 'h2', '### ': 'h3', '- ': 'ul', '* ': 'ul', '1. ': 'ol', '[] ': 'todo', '> ': 'quote' };
@@ -579,9 +603,9 @@ function openSlash(b, t) {
 function openLinkMenu(b, t, m) {
   const pos = caretPos(t), start = pos - m[0].length, q = m[1].trim().toLowerCase();
   const items = pages.filter(p => !p.trashed && cur && p.id !== cur.id && (p.title || '').trim() && p.title.toLowerCase().includes(q))
-    .slice(0, 8).map(p => ({ g: p.icon || '📄', n: p.title, d: 'Linkar página', run: bid => insertLink(bid, start, pos, p.title) }));
+    .slice(0, 8).map(p => ({ g: pageIcon(p.icon) || pic('file'), n: p.title, d: 'Linkar página', run: bid => insertLink(bid, start, pos, p.title) }));
   const exact = pages.some(p => !p.trashed && (p.title || '').trim().toLowerCase() === q);
-  if (q && !exact) items.push({ g: '＋', n: `Criar “${m[1].trim()}”`, d: 'Nova página', run: async bid => {
+  if (q && !exact) items.push({ g: pic('add'), n: `Criar “${m[1].trim()}”`, d: 'Nova página', run: async bid => {
     try {
       const r = await api('page_create', { body: { title: m[1].trim() } });
       pages.push(r.page); renderTree();
@@ -605,7 +629,7 @@ function showMenu(b, t, items) {
   const below = rc.bottom + 6, mh = Math.min(300, items.length * 52 + 8);
   m.style.top = (below + mh > innerHeight ? Math.max(8, rc.top - mh - 6) : below) + 'px';
   m.replaceChildren(...items.map((x, i) => {
-    const btn = h('button', { class: i === slash.sel ? 'on' : '', type: 'button' }, h('span', { class: 'g' }, x.g), h('span', {}, x.n, h('small', {}, x.d)));
+    const btn = h('button', { class: i === slash.sel ? 'on' : '', type: 'button' }, h('span', { class: 'g' }, x.ic ? pic(x.ic) : x.g), h('span', {}, x.n, h('small', {}, x.d)));
     btn.onmousedown = ev => { ev.preventDefault(); pickSlash(i); };
     return btn;
   }));
@@ -666,13 +690,13 @@ function renderRefs() {
   const box = $('#refs'); if (!box || !cur) return;
   const chip = id => {
     const p = pages.find(x => x.id === id);
-    return p ? h('button', { class: 'chip', onclick: () => openPage(id) }, (p.icon || '📄') + ' ' + (p.title || 'Sem título')) : null;
+    return p ? h('button', { class: 'chip', onclick: () => openPage(id) }, pageIcon(p.icon) || pic('file'), ' ', p.title || 'Sem título') : null;
   };
   const outs = [...new Set(edges.filter(e => e.from === cur.id).map(e => e.to))];
   const ins = [...new Set(edges.filter(e => e.to === cur.id).map(e => e.from))];
   const kids = pages.filter(p => p.parent_id === cur.id && !p.trashed).map(p => p.id);
-  const sec = (name, ids) => ids.length ? h('div', { class: 'refsec' }, h('b', {}, name), ...ids.map(chip)) : null;
-  box.replaceChildren(...[sec('Links nesta página', outs), sec('Mencionada em', ins), sec('Subpáginas', kids)].filter(Boolean));
+  const sec = (name, ids, icon) => ids.length ? h('div', { class: 'refsec' }, h('b', {}, pic(icon), name), ...ids.map(chip)) : null;
+  box.replaceChildren(...[sec('Links nesta página', outs, 'link'), sec('Mencionada em', ins, 'bookmark'), sec('Subpáginas', kids, 'folder')].filter(Boolean));
 }
 $('#graphBtn').onclick = () => showGraph();
 async function showGraph() {
@@ -834,14 +858,14 @@ $('#trashBtn').onclick = async () => {
   const trashed = pages.filter(p => p.trashed);
   if (!trashed.length) list.append(h('div', { class: 'muted' }, 'A lixeira está vazia.'));
   trashed.forEach(p => list.append(h('div', { class: 'item' },
-    h('span', {}, (p.icon || '') + ' ' + (p.title || 'Sem título'),
+    h('span', {}, pageIcon(p.icon), ' ', p.title || 'Sem título',
       h('small', {}, (d => d > 0 ? `Exclusão automática em ${d} dia${d > 1 ? 's' : ''}` : 'Será excluída em breve')(Math.ceil(((p.trashed_at || serverNow) + 604800 - serverNow) / 86400)))),
     h('button', { class: 'btn', onclick: async () => { await api('page_restore', { body: { id: p.id } }); await loadPages(); $('#trashBtn').click(); } }, 'Restaurar'),
     h('button', { class: 'btn', onclick: async () => {
       if (!await ask('Excluir definitivamente?', [], 'Excluir', `"${p.title || 'Sem título'}" e suas subpáginas serão apagadas para sempre.`)) return;
       try { await api('page_delete', { body: { id: p.id } }); await loadPages(); $('#trashBtn').click(); } catch (ex) { toast(ex.message); }
     } }, 'Excluir'))));
-  setView(h('div', { class: 'doc' }, h('h1', { style: 'margin-top:30px' }, 'Lixeira'), h('p', { class: 'muted' }, 'As páginas na lixeira são excluídas automaticamente após 7 dias.'), list));
+  setView(h('div', { class: 'doc' }, h('h1', { class: 'ttl-ic' }, pic('trash', 'lg'), 'Lixeira'), h('p', { class: 'muted' }, 'As páginas na lixeira são excluídas automaticamente após 7 dias.'), list));
   $('#app').classList.remove('open');
 };
 

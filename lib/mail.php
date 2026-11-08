@@ -79,7 +79,7 @@ function mail_template(string $title, string $intro, string $label, string $url,
     $html = '<!doctype html><html lang="pt-BR"><body style="margin:0;background:#f4f4f2;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#2b2a27">'
         . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">'
         . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:12px;padding:32px">'
-        . '<tr><td style="font-size:20px;font-weight:800;padding-bottom:20px">Workflow <span style="font-weight:400;color:#8a877f">SLOM</span></td></tr>'
+        . '<tr><td style="font-size:20px;font-weight:800;padding-bottom:20px"><img src="' . $e(function_exists('baseUrl') ? baseUrl() : 'https://slomdev.com') . '/assets/img/logo-app.png" width="40" height="40" alt="SLOM DEV" style="vertical-align:middle;border-radius:10px;margin-right:10px;border:0"><span style="vertical-align:middle">Workflow <span style="font-weight:400;color:#8a877f">SLOM</span></span></td></tr>'
         . '<tr><td style="font-size:20px;font-weight:700;padding-bottom:10px">' . $e($title) . '</td></tr>'
         . '<tr><td style="font-size:15px;line-height:1.6;padding-bottom:24px">' . $e($intro) . '</td></tr>'
         . '<tr><td style="padding-bottom:24px"><a href="' . $e($url) . '" style="background:#2f6fed;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:8px;display:inline-block">' . $e($label) . '</a></td></tr>'

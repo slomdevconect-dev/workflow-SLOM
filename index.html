@@ -5,12 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Workflow SLOM</title>
 <meta name="robots" content="noindex">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Ctext x='16' y='22' font-size='17' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='white'%3ES%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="assets/app.css?v=4">
+<link rel="icon" type="image/png" href="assets/img/favicon-64.png">
+<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
+<meta name="theme-color" content="#0b1220">
+<link rel="stylesheet" href="assets/app.css?v=5">
 </head>
 <body>
 <div id="auth" class="auth" hidden>
   <form id="authForm" class="auth-card" novalidate>
+    <div class="logo-plate"><img src="assets/img/logo-h.png" alt="SLOM DEV"></div>
     <div class="brand">Workflow<span>SLOM</span></div>
     <h2 id="authTitle"></h2>
     <p id="authMsg" class="muted"></p>
@@ -30,7 +33,7 @@
 
 <div id="app" class="app" hidden>
   <main class="main">
-    <div id="banner" class="banner" hidden><span>Confirme seu e-mail para proteger a conta e poder recuperar a senha.</span><button class="btn" id="bannerBtn">Confirmar e-mail</button></div>
+    <div id="banner" class="banner" hidden><img class="pi" src="assets/img/icons/bell.png" alt=""><span>Confirme seu e-mail para proteger a conta e poder recuperar a senha.</span><button class="btn" id="bannerBtn">Confirmar e-mail</button></div>
     <header class="top">
       <div id="crumbs" class="crumbs"></div>
       <span id="status" class="status"></span>
@@ -42,28 +45,30 @@
   <aside id="side" class="side" aria-label="Menu">
     <div class="side-head">
       <button class="icon" id="collapseBtn" aria-label="Recolher menu"></button>
+      <img class="side-logo" src="assets/img/logo-app.png" alt="SLOM DEV">
       <div class="who"><b>Workflow SLOM</b><small id="meName"></small></div>
     </div>
     <div class="side-actions">
-      <button class="nav primary" id="newRoot" title="Nova página"><i data-i="plus"></i><span>Nova página</span></button>
-      <button class="nav" id="searchBtn" title="Buscar"><i data-i="search"></i><span>Buscar</span></button>
-      <button class="nav" id="graphBtn" title="Grafo de ideias"><i data-i="graph"></i><span>Grafo de ideias</span></button>
+      <button class="nav" id="homeBtn" title="Início"><img class="ni" src="assets/img/icons/home.png" alt=""><span>Início</span></button>
+      <button class="nav primary" id="newRoot" title="Nova página"><img class="ni" src="assets/img/icons/add.png" alt=""><span>Nova página</span></button>
+      <button class="nav" id="searchBtn" title="Buscar"><img class="ni" src="assets/img/icons/search.png" alt=""><span>Buscar</span></button>
+      <button class="nav" id="graphBtn" title="Grafo de ideias"><img class="ni" src="assets/img/icons/share.png" alt=""><span>Grafo de ideias</span></button>
     </div>
     <input id="search" class="search" placeholder="Buscar páginas…" type="search" aria-label="Buscar páginas">
     <nav id="tree" class="tree"></nav>
     <div class="side-foot">
-      <button class="nav" id="trashBtn" title="Lixeira"><i data-i="trash"></i><span>Lixeira</span></button>
-      <button class="nav" id="usersBtn" title="Usuários" hidden><i data-i="users"></i><span>Usuários</span></button>
-      <button class="nav" id="mailBtn" title="E-mail da conta"><i data-i="mail"></i><span>E-mail da conta</span></button>
-      <button class="nav" id="pwBtn" title="Alterar senha"><i data-i="key"></i><span>Alterar senha</span></button>
-      <button class="nav" id="themeBtn" title="Aparência"><i data-i="palette"></i><span>Aparência</span></button>
-      <button class="nav" id="logoutBtn" title="Sair"><i data-i="logout"></i><span>Sair</span></button>
+      <button class="nav" id="trashBtn" title="Lixeira"><img class="ni" src="assets/img/icons/trash.png" alt=""><span>Lixeira</span></button>
+      <button class="nav" id="usersBtn" title="Usuários" hidden><img class="ni" src="assets/img/icons/team.png" alt=""><span>Usuários</span></button>
+      <button class="nav" id="mailBtn" title="E-mail da conta"><img class="ni" src="assets/img/icons/shield.png" alt=""><span>E-mail da conta</span></button>
+      <button class="nav" id="pwBtn" title="Alterar senha"><img class="ni" src="assets/img/icons/lock.png" alt=""><span>Alterar senha</span></button>
+      <button class="nav" id="themeBtn" title="Aparência"><img class="ni" id="themeIcon" src="assets/img/icons/moon.png" alt=""><span>Aparência</span></button>
+      <button class="nav" id="logoutBtn" title="Sair"><img class="ni" src="assets/img/icons/external.png" alt=""><span>Sair</span></button>
     </div>
   </aside>
 </div>
 
 <div id="slash" class="slash" hidden></div>
 <dialog id="dlg" class="dlg"></dialog>
-<script src="assets/app.js?v=4"></script>
+<script src="assets/app.js?v=5"></script>
 </body>
 </html>

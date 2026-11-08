@@ -78,8 +78,7 @@ label input:focus,.dlg input:focus,.search:focus{outline:2px solid var(--acc);ou
 .side-foot{border-top:1px solid var(--line);margin-top:auto;overflow-y:auto;flex:none}
 .nav{display:flex;align-items:center;gap:.8rem;width:100%;padding:.6rem .7rem;border-radius:8px;text-align:left;white-space:nowrap}
 .nav i svg{width:1.3rem;height:1.3rem;stroke-width:1.9}
-.nav.primary{background:var(--acc);color:var(--accfg);font-weight:600;margin-bottom:2px}
-.nav.primary:hover{background:var(--acc);filter:brightness(1.08)}
+.nav.primary{background:var(--bg3);border:1px solid var(--acc);font-weight:600;margin-bottom:2px}
 .search{margin:.3rem .8rem;padding:.55rem .75rem;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-size:.95rem}
 .tree{flex:1;overflow:auto;padding:.2rem .5rem}
 .row{display:flex;align-items:center;gap:2px;padding:.28rem .3rem;border-radius:6px;font-size:.95rem;cursor:pointer;user-select:none}
@@ -131,7 +130,7 @@ label input:focus,.dlg input:focus,.search:focus{outline:2px solid var(--acc);ou
 .t-h3 .txt{font-size:1.2rem;font-weight:700;margin-top:.6rem}
 .t-quote .txt{border-left:3px solid var(--fg);padding-left:14px;margin-left:2px}
 .t-callout{background:var(--bg2);border-radius:8px;padding:.75rem .9rem;margin:4px 0}
-.t-callout::before{content:"💡"}
+.t-callout::before{content:"";width:1.7rem;height:1.7rem;flex:none;background:url(img/icons/idea.png) center/contain no-repeat}
 .t-ul::before,.t-ol::before{content:"•";width:1.4rem;text-align:center;flex:none;padding-top:2px}
 .t-ol::before{content:attr(data-n) ".";color:var(--fg)}
 .t-todo input{margin:.45rem 4px 0 2px;width:1.1rem;height:1.1rem;flex:none;accent-color:var(--acc);cursor:pointer}
@@ -205,3 +204,29 @@ label input:focus,.dlg input:focus,.search:focus{outline:2px solid var(--acc);ou
   .row .acts{display:flex}
   .themes{grid-template-columns:repeat(3,1fr)}
 }
+
+/* ===== Marca e icones ===== */
+.logo-plate{background:linear-gradient(135deg,#0b1220,#10213f);border-radius:12px;padding:.9rem 1rem;display:flex;justify-content:center}
+.logo-plate img{height:3.2rem;width:auto;max-width:100%;display:block}
+.side-logo{width:2.4rem;height:2.4rem;border-radius:10px;flex:none}
+.ni{width:1.6rem;height:1.6rem;flex:none;object-fit:contain}
+.pi{width:1.2em;height:1.2em;object-fit:contain;vertical-align:-.22em;flex:none}
+.pi.sm{width:1em;height:1em}.pi.lg{width:2.3rem;height:2.3rem}.pi.xl{width:4.2rem;height:4.2rem;margin-bottom:.4rem}
+.page-ic .pi{width:4.2rem;height:4.2rem}
+.row .ic .pi{width:1.4rem;height:1.4rem}
+.row .acts .pi{width:1.15rem;height:1.15rem}
+.crumbs .pi{width:1.2rem;height:1.2rem}
+.slash .g .pi{width:1.7rem;height:1.7rem}
+.banner .pi{width:1.5rem;height:1.5rem}
+.status{display:flex;align-items:center;gap:.35rem}
+.ttl-ic{display:flex;align-items:center;gap:.6rem;margin-top:1.8rem}
+.refsec b{display:flex;align-items:center;gap:.4rem}
+.empty-view .pi.xl{display:block;margin-inline:auto}
+.icongrid{display:grid;grid-template-columns:repeat(8,1fr);gap:.3rem;max-height:46vh;overflow:auto;padding:.2rem}
+.icongrid button{border-radius:10px;padding:.35rem;display:grid;place-items:center;background:#0b1220}
+.icongrid button:hover{outline:2px solid var(--acc)}
+.icongrid .pi{width:2.1rem;height:2.1rem}
+.dlg:has(.icongrid){width:min(94vw,40rem)}
+.side-head{flex-wrap:nowrap}
+.app.collapsed .side-head{flex-direction:column;gap:.5rem}
+@media(max-width:760px){.icongrid{grid-template-columns:repeat(5,1fr)}.logo-plate img{height:2.6rem}}
