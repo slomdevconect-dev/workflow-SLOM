@@ -132,3 +132,10 @@ label input:focus,.dlg input:focus,.search:focus{outline:2px solid var(--acc);ou
 .gtools .btn{padding:6px 12px;background:var(--bg);border:1px solid var(--line)}
 .glegend{position:absolute;left:14px;bottom:12px;font-size:12.5px;color:var(--mut);max-width:80%}
 .gempty{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--mut);text-align:center;max-width:320px;pointer-events:none;margin-top:90px}
+
+.auth-card h2{margin:0;font-size:20px}
+.auth-links{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.auth-links .link{padding:4px 2px;font-size:13.5px;color:var(--acc)}
+.auth-links .link:hover{background:none;text-decoration:underline}
+.banner{display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;background:color-mix(in srgb,var(--acc) 14%,var(--bg));border-bottom:1px solid var(--line);padding:8px 14px;font-size:14px}
+.banner .btn{padding:5px 12px;background:var(--acc);color:var(--accfg)}

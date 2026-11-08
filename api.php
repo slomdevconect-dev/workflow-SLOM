@@ -53,6 +53,68 @@ CREATE INDEX IF NOT EXISTS idx_pages_user ON pages(user_id, parent_id);
 CREATE TABLE IF NOT EXISTS attempts (ip TEXT NOT NULL, ts INTEGER NOT NULL);
 ");
 
+$cols = array_column($db->query('PRAGMA table_info(users)')->fetchAll(), 'name');
+if (!in_array('email', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN email TEXT COLLATE NOCASE');
+if (!in_array('email_verified', $cols, true)) $db->exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0');
+$db->exec("
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE TABLE IF NOT EXISTS tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL, email TEXT, hash TEXT NOT NULL UNIQUE, expires INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS throttle (k TEXT NOT NULL, ts INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_throttle ON throttle(k, ts);
+");
+
+$CFG = is_file($dir . '/config.php') ? (require $dir . '/config.php') : [];
+require __DIR__ . '/lib/mail.php';
+
+function baseUrl(): string {
+    global $CFG;
+    return rtrim($CFG['base_url'] ?? ('https://' . preg_replace('/[^A-Za-z0-9.:-]/', '', $_SERVER['HTTP_HOST'] ?? 'localhost')), '/');
+}
+function throttle(PDO $db, string $k, int $max, int $win): void {
+    $db->prepare('DELETE FROM throttle WHERE ts < ?')->execute([time() - 86400]);
+    $c = $db->prepare('SELECT COUNT(*) FROM throttle WHERE k = ? AND ts > ?');
+    $c->execute([$k, time() - $win]);
+    if ((int)$c->fetchColumn() >= $max) fail('Muitas tentativas. Tente novamente mais tarde.', 429);
+}
+function hit(PDO $db, string $k): void { $db->prepare('INSERT INTO throttle (k, ts) VALUES (?, ?)')->execute([$k, time()]); }
+function clientIp(): string { return $_SERVER['REMOTE_ADDR'] ?? '?'; }
+function cleanEmail(string $e): string {
+    $e = strtolower(trim($e));
+    if (strlen($e) > 120 || !filter_var($e, FILTER_VALIDATE_EMAIL)) fail('Informe um e-mail válido');
+    return $e;
+}
+function tokenMake(PDO $db, int $uid, string $kind, ?string $email, int $ttl): string {
+    $db->prepare('DELETE FROM tokens WHERE user_id = ? AND kind = ?')->execute([$uid, $kind]);
+    $raw = bin2hex(random_bytes(32));
+    $db->prepare('INSERT INTO tokens (user_id, kind, email, hash, expires) VALUES (?, ?, ?, ?, ?)')
+       ->execute([$uid, $kind, $email, hash('sha256', $raw), time() + $ttl]);
+    return $raw;
+}
+function tokenUse(PDO $db, string $raw, string $kind): ?array {
+    $s = $db->prepare('SELECT * FROM tokens WHERE hash = ? AND kind = ? AND expires > ?');
+    $s->execute([hash('sha256', $raw), $kind, time()]);
+    $row = $s->fetch();
+    if (!$row) return null;
+    $db->prepare('DELETE FROM tokens WHERE id = ?')->execute([$row['id']]);
+    return $row;
+}
+function sendVerify(PDO $db, int $uid, string $email): void {
+    throttle($db, 'mail:' . $email, 3, 3600);
+    hit($db, 'mail:' . $email);
+    $url = baseUrl() . '/?verify=' . tokenMake($db, $uid, 'verify', $email, 86400);
+    [$html, $text] = mail_template('Confirme seu e-mail', 'Para ativar sua conta no Workflow SLOM, confirme que este endereço de e-mail é seu. O link vale por 24 horas.', 'Confirmar e-mail', $url, 'Se você não criou uma conta, ignore esta mensagem.');
+    if (!send_mail($email, 'Confirme seu e-mail — Workflow SLOM', $html, $text)) error_log('SLOM: falha ao enviar e-mail de confirmacao');
+}
+function sendReset(PDO $db, int $uid, string $email): void {
+    $url = baseUrl() . '/?reset=' . tokenMake($db, $uid, 'reset', null, 3600);
+    [$html, $text] = mail_template('Redefinir senha', 'Recebemos um pedido para redefinir a senha da sua conta. O link vale por 1 hora e só pode ser usado uma vez.', 'Criar nova senha', $url, 'Se não foi você, ignore esta mensagem: sua senha continua a mesma.');
+    if (!send_mail($email, 'Redefinir senha — Workflow SLOM', $html, $text)) error_log('SLOM: falha ao enviar e-mail de redefinicao');
+}
+
 $action = $_GET['a'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'];
 $body = [];
@@ -68,7 +130,7 @@ $uid = (int)($_SESSION['uid'] ?? 0);
 
 function currentUser(PDO $db, int $uid): ?array {
     if (!$uid) return null;
-    $s = $db->prepare('SELECT id, username, name, is_admin FROM users WHERE id = ?');
+    $s = $db->prepare('SELECT id, username, name, is_admin, email, email_verified FROM users WHERE id = ?');
     $s->execute([$uid]);
     return $s->fetch() ?: null;
 }
@@ -115,34 +177,103 @@ try {
             out([
                 'user' => $user, 'csrf' => $_SESSION['csrf'],
                 'setup' => $userCount === 0,
+                'signup' => (bool)($CFG['allow_signup'] ?? true),
             ]);
 
         case 'setup':
             if ($userCount > 0) fail('Já configurado', 403);
-            $username = cleanUsername((string)($body['username'] ?? ''));
+            $email = cleanEmail((string)($body['email'] ?? ''));
             $pass = cleanPass((string)($body['password'] ?? ''));
-            $name = trim((string)($body['name'] ?? '')) ?: $username;
-            $db->prepare('INSERT INTO users (username, name, pass_hash, is_admin) VALUES (?, ?, ?, 1)')
-               ->execute([$username, mb_substr($name, 0, 80), password_hash($pass, PASSWORD_DEFAULT)]);
-            $u = currentUser($db, (int)$db->lastInsertId());
+            $name = trim((string)($body['name'] ?? '')) ?: strstr($email, '@', true);
+            $db->prepare('INSERT INTO users (username, name, pass_hash, is_admin, email) VALUES (?, ?, ?, 1, ?)')
+               ->execute([$email, mb_substr($name, 0, 80), password_hash($pass, PASSWORD_DEFAULT), $email]);
+            $newId = (int)$db->lastInsertId();
+            try { sendVerify($db, $newId, $email); } catch (Throwable $t) { error_log('SLOM: ' . $t->getMessage()); }
+            $u = currentUser($db, $newId);
             login($u);
             out(['user' => $u, 'csrf' => $_SESSION['csrf']]);
 
+        case 'register':
+            if (!($CFG['allow_signup'] ?? true)) fail('Cadastro desativado', 403);
+            $ip = clientIp();
+            throttle($db, 'reg:' . $ip, 10, 3600);
+            hit($db, 'reg:' . $ip);
+            $email = cleanEmail((string)($body['email'] ?? ''));
+            $pass = cleanPass((string)($body['password'] ?? ''));
+            $name = trim((string)($body['name'] ?? '')) ?: strstr($email, '@', true);
+            $e = $db->prepare('SELECT 1 FROM users WHERE email = ? OR username = ?');
+            $e->execute([$email, $email]);
+            if (!$e->fetch()) {                       // resposta igual exista ou nao (nao revela contas)
+                $db->prepare('INSERT INTO users (username, name, pass_hash, email) VALUES (?, ?, ?, ?)')
+                   ->execute([$email, mb_substr($name, 0, 80), password_hash($pass, PASSWORD_DEFAULT), $email]);
+                sendVerify($db, (int)$db->lastInsertId(), $email);
+            }
+            out(['ok' => true]);
+
+        case 'verify':
+            $row = tokenUse($db, (string)($body['token'] ?? ''), 'verify');
+            if (!$row) fail('Link inválido ou expirado. Peça um novo e-mail de confirmação.', 400);
+            $dup = $db->prepare('SELECT 1 FROM users WHERE email = ? AND id <> ?');
+            $dup->execute([$row['email'], $row['user_id']]);
+            if ($dup->fetch()) fail('Este e-mail já está em uso por outra conta', 409);
+            $db->prepare('UPDATE users SET email = ?, email_verified = 1 WHERE id = ?')->execute([$row['email'], $row['user_id']]);
+            out(['ok' => true]);
+
+        case 'resend':
+            $email = cleanEmail((string)($body['email'] ?? ''));
+            throttle($db, 'resend:' . clientIp(), 10, 3600);
+            hit($db, 'resend:' . clientIp());
+            $s = $db->prepare('SELECT id FROM users WHERE email = ? AND email_verified = 0');
+            $s->execute([$email]);
+            if ($id = $s->fetchColumn()) sendVerify($db, (int)$id, $email);
+            out(['ok' => true]);
+
+        case 'forgot':
+            $email = cleanEmail((string)($body['email'] ?? ''));
+            throttle($db, 'forgot:' . clientIp(), 10, 3600);
+            throttle($db, 'forgot:' . $email, 3, 3600);
+            hit($db, 'forgot:' . clientIp()); hit($db, 'forgot:' . $email);
+            $s = $db->prepare('SELECT id FROM users WHERE email = ? AND email_verified = 1');
+            $s->execute([$email]);
+            if ($id = $s->fetchColumn()) sendReset($db, (int)$id, $email);
+            out(['ok' => true]);
+
+        case 'reset':
+            $row = tokenUse($db, (string)($body['token'] ?? ''), 'reset');
+            if (!$row) fail('Link inválido ou expirado. Peça uma nova redefinição.', 400);
+            $pass = cleanPass((string)($body['password'] ?? ''));
+            $db->prepare('UPDATE users SET pass_hash = ?, email_verified = 1 WHERE id = ?')->execute([password_hash($pass, PASSWORD_DEFAULT), $row['user_id']]);
+            $db->prepare('DELETE FROM tokens WHERE user_id = ?')->execute([$row['user_id']]);
+            out(['ok' => true]);
+
+        case 'email_set':
+            $u = needUser($user);
+            $s = $db->prepare('SELECT pass_hash FROM users WHERE id = ?');
+            $s->execute([$u['id']]);
+            if (!password_verify((string)($body['password'] ?? ''), (string)$s->fetchColumn())) fail('Senha incorreta', 403);
+            $email = cleanEmail((string)($body['email'] ?? ''));
+            $dup = $db->prepare('SELECT 1 FROM users WHERE email = ? AND id <> ?');
+            $dup->execute([$email, $u['id']]);
+            if ($dup->fetch()) fail('Este e-mail já está em uso');
+            sendVerify($db, (int)$u['id'], $email);
+            out(['ok' => true]);
+
         case 'login':
-            $ip = $_SERVER['REMOTE_ADDR'] ?? '?';
-            $db->prepare('DELETE FROM attempts WHERE ts < ?')->execute([time() - 900]);
-            $c = $db->prepare('SELECT COUNT(*) FROM attempts WHERE ip = ?');
-            $c->execute([$ip]);
-            if ((int)$c->fetchColumn() >= 8) fail('Muitas tentativas. Aguarde 15 minutos.', 429);
-            $s = $db->prepare('SELECT * FROM users WHERE username = ?');
-            $s->execute([trim((string)($body['username'] ?? ''))]);
+            $ip = clientIp();
+            $ident = strtolower(trim((string)($body['identifier'] ?? '')));
+            throttle($db, 'login:' . $ip, 10, 900);
+            throttle($db, 'login:id:' . $ident, 8, 900);
+            $s = $db->prepare('SELECT * FROM users WHERE username = ? OR email = ?');
+            $s->execute([$ident, $ident]);
             $row = $s->fetch();
             $ok = password_verify((string)($body['password'] ?? ''), $row['pass_hash'] ?? '$2y$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidi');
             if (!$row || !$ok) {
-                $db->prepare('INSERT INTO attempts (ip, ts) VALUES (?, ?)')->execute([$ip, time()]);
-                fail('Usuário ou senha incorretos', 401);
+                hit($db, 'login:' . $ip); hit($db, 'login:id:' . $ident);
+                fail('E-mail ou senha incorretos', 401);
             }
-            $db->prepare('DELETE FROM attempts WHERE ip = ?')->execute([$ip]);
+            if ($row['email'] && !$row['email_verified'] && !$row['is_admin'])
+                out(['error' => 'Confirme seu e-mail antes de entrar. Enviamos um link para ' . $row['email'] . '.', 'unverified' => true, 'email' => $row['email']], 403);
+            $db->prepare('DELETE FROM throttle WHERE k IN (?, ?)')->execute(['login:' . $ip, 'login:id:' . $ident]);
             login($row);
             out(['user' => currentUser($db, (int)$row['id']), 'csrf' => $_SESSION['csrf']]);
 

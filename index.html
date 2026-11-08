@@ -10,15 +10,21 @@
 </head>
 <body>
 <div id="auth" class="auth" hidden>
-  <form id="authForm" class="auth-card" autocomplete="on">
+  <form id="authForm" class="auth-card" novalidate>
     <div class="brand">Workflow<span>SLOM</span></div>
+    <h2 id="authTitle"></h2>
     <p id="authMsg" class="muted"></p>
-    <label id="nameRow" hidden>Nome<input id="aName" autocomplete="name"></label>
-    <label>Usuário<input id="aUser" required autocomplete="username" autocapitalize="none"></label>
-    <label>Senha<input id="aPass" type="password" required autocomplete="current-password"></label>
-    <label id="pass2Row" hidden>Confirmar senha<input id="aPass2" type="password" autocomplete="new-password"></label>
+    <label data-f="name" hidden>Nome<input id="aName" autocomplete="name" maxlength="80"></label>
+    <label data-f="email">E-mail<input id="aEmail" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+    <label data-f="pass">Senha<input id="aPass" type="password" autocomplete="current-password"></label>
+    <label data-f="pass2" hidden>Confirmar senha<input id="aPass2" type="password" autocomplete="new-password"></label>
     <div id="authErr" class="err" role="alert"></div>
-    <button class="btn primary" id="authBtn">Entrar</button>
+    <button class="btn primary" id="authBtn"></button>
+    <button type="button" class="btn" id="resendBtn" hidden>Reenviar e-mail de confirmação</button>
+    <div class="auth-links">
+      <button type="button" class="link" id="lnkForgot">Esqueci minha senha</button>
+      <button type="button" class="link" id="lnkSwitch"></button>
+    </div>
   </form>
 </div>
 
@@ -34,6 +40,7 @@
       <button class="link" id="graphBtn">🕸 Grafo de ideias</button>
       <button class="link" id="trashBtn">🗑 Lixeira</button>
       <button class="link" id="usersBtn" hidden>👥 Usuários</button>
+      <button class="link" id="mailBtn">✉ E-mail da conta</button>
       <button class="link" id="pwBtn">🔑 Alterar senha</button>
       <button class="link" id="themeBtn">◐ Tema</button>
       <button class="link" id="logoutBtn">⎋ Sair</button>
@@ -41,6 +48,7 @@
   </aside>
   <div id="scrim" class="scrim"></div>
   <main class="main">
+    <div id="banner" class="banner" hidden><span>Confirme seu e-mail para proteger a conta e poder recuperar a senha.</span><button class="btn" id="bannerBtn">Confirmar e-mail</button></div>
     <header class="top">
       <button class="icon menu" id="menuBtn" aria-label="Menu">☰</button>
       <div id="crumbs" class="crumbs"></div>

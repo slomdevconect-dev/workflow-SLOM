@@ -1,2 +1,2 @@
-data/*.db
-data/*.db-*
+data/*
+!data/.htaccess

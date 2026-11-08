@@ -33,7 +33,7 @@ async function api(a, { body, q = '', keepalive = false } = {}) {
   const j = await r.json().catch(() => ({ error: 'Resposta inválida do servidor' }));
   if (!r.ok) {
     if (r.status === 401 && ME) { ME = null; showAuth(false); }
-    throw Object.assign(new Error(j.error || 'Erro'), { status: r.status });
+    throw Object.assign(new Error(j.error || 'Erro'), { status: r.status, data: j });
   }
   return j;
 }
@@ -48,46 +48,112 @@ $('#themeBtn').onclick = () => {
 };
 
 /* ---------- autenticação ---------- */
-let setupMode = false;
-function showAuth(setup) {
-  setupMode = setup;
-  $('#app').hidden = true; $('#auth').hidden = false;
-  $('#nameRow').hidden = $('#pass2Row').hidden = !setup;
-  $('#authMsg').textContent = setup ? 'Primeiro acesso: crie a conta de administrador.' : 'Entre para acessar suas páginas.';
-  $('#authBtn').textContent = setup ? 'Criar conta' : 'Entrar';
-  $('#aPass').autocomplete = setup ? 'new-password' : 'current-password';
+const MODES = {
+  login:    { title: 'Entrar', btn: 'Entrar', fields: ['email', 'pass'], msg: 'Entre para acessar suas páginas.' },
+  register: { title: 'Criar conta', btn: 'Criar conta', fields: ['name', 'email', 'pass', 'pass2'], msg: 'Enviaremos um e-mail para confirmar seu endereço.' },
+  setup:    { title: 'Configuração inicial', btn: 'Criar administrador', fields: ['name', 'email', 'pass', 'pass2'], msg: 'Primeiro acesso: crie a conta de administrador.' },
+  forgot:   { title: 'Recuperar senha', btn: 'Enviar link', fields: ['email'], msg: 'Informe seu e-mail para receber o link de redefinição.' },
+  reset:    { title: 'Nova senha', btn: 'Salvar nova senha', fields: ['pass', 'pass2'], msg: 'Escolha uma nova senha (mínimo 8 caracteres).' },
+  notice:   { title: '', btn: 'Voltar ao login', fields: [], msg: '' },
+};
+let mode = 'login', SIGNUP = true, resetToken = '', noticeEmail = '';
+const field = n => document.querySelector(`#authForm [data-f="${n}"]`);
+function setMode(m, msg, err) {
+  mode = m;
+  const c = MODES[m];
+  ['name', 'email', 'pass', 'pass2'].forEach(n => {
+    const on = c.fields.includes(n);
+    field(n).hidden = !on;
+    field(n).querySelector('input').required = on;
+  });
+  $('#aEmail').type = m === 'login' ? 'text' : 'email';
+  $('#aEmail').previousSibling.textContent = m === 'login' ? 'E-mail ou usuário' : 'E-mail';
+  $('#aPass').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+  $('#authTitle').textContent = c.title;
+  $('#authMsg').textContent = msg ?? c.msg;
+  $('#authErr').textContent = err || '';
+  $('#authBtn').textContent = c.btn;
+  $('#resendBtn').hidden = !(m === 'notice' && noticeEmail);
+  $('#lnkForgot').hidden = m !== 'login';
+  const sw = $('#lnkSwitch');
+  sw.hidden = m === 'setup' || (m === 'login' && !SIGNUP);
+  sw.textContent = m === 'login' ? 'Criar conta' : 'Voltar ao login';
+  sw.onclick = () => { noticeEmail = ''; setMode(m === 'login' ? 'register' : 'login'); };
   $('#aPass').value = $('#aPass2').value = '';
-  $('#authErr').textContent = '';
-  $('#aUser').focus();
+  const first = c.fields[0] && field(c.fields[0]).querySelector('input');
+  if (first) first.focus();
 }
+function showAuth(setup) {
+  $('#app').hidden = true; $('#auth').hidden = false;
+  noticeEmail = '';
+  setMode(setup ? 'setup' : 'login');
+}
+function notice(title, msg, email = '') {
+  noticeEmail = email;
+  setMode('notice', msg);
+  $('#authTitle').textContent = title;
+}
+$('#lnkForgot').onclick = () => setMode('forgot', null);
+$('#resendBtn').onclick = async () => {
+  try { await api('resend', { body: { email: noticeEmail } }); $('#authErr').textContent = ''; $('#authMsg').textContent = 'Se houver uma conta pendente, enviamos um novo link para ' + noticeEmail + '.'; }
+  catch (ex) { $('#authErr').textContent = ex.message; }
+};
 $('#authForm').addEventListener('submit', async e => {
   e.preventDefault();
   const err = $('#authErr'), btn = $('#authBtn');
   err.textContent = '';
-  if (setupMode && $('#aPass').value !== $('#aPass2').value) { err.textContent = 'As senhas não conferem'; return; }
+  if (mode === 'notice') return setMode('login');
+  const email = $('#aEmail').value.trim(), pass = $('#aPass').value;
+  if (['register', 'setup', 'reset'].includes(mode) && pass !== $('#aPass2').value) { err.textContent = 'As senhas não conferem'; return; }
   btn.disabled = true;
   try {
-    const body = { username: $('#aUser').value, password: $('#aPass').value };
-    if (setupMode) body.name = $('#aName').value;
-    const r = await api(setupMode ? 'setup' : 'login', { body });
-    CSRF = r.csrf; ME = r.user;
-    await startApp();
-  } catch (ex) { err.textContent = ex.message; }
+    if (mode === 'login') {
+      const r = await api('login', { body: { identifier: email, password: pass } });
+      CSRF = r.csrf; ME = r.user; await startApp();
+    } else if (mode === 'setup') {
+      const r = await api('setup', { body: { name: $('#aName').value, email, password: pass } });
+      CSRF = r.csrf; ME = r.user; await startApp();
+    } else if (mode === 'register') {
+      await api('register', { body: { name: $('#aName').value, email, password: pass } });
+      notice('Verifique seu e-mail', `Enviamos um link de confirmação para ${email}. Clique nele para ativar a conta. Se não chegar em alguns minutos, olhe a caixa de spam.`, email);
+    } else if (mode === 'forgot') {
+      await api('forgot', { body: { email } });
+      notice('Verifique seu e-mail', `Se existir uma conta com ${email}, enviamos um link para redefinir a senha. Ele vale por 1 hora.`);
+    } else if (mode === 'reset') {
+      await api('reset', { body: { token: resetToken, password: pass } });
+      resetToken = ''; setMode('login', 'Senha alterada! Entre com a nova senha.');
+    }
+  } catch (ex) {
+    if (ex.data && ex.data.unverified) notice('Confirme seu e-mail', ex.message, ex.data.email);
+    else err.textContent = ex.message;
+  }
   btn.disabled = false;
 });
 $('#logoutBtn').onclick = async () => {
   await flush();
   try { await api('logout', { body: {} }); } catch {}
   ME = null; cur = null; pages = []; location.hash = '';
-  const r = await api('me'); CSRF = r.csrf;
+  const r = await api('me'); CSRF = r.csrf; SIGNUP = r.signup;
   showAuth(r.setup);
 };
+function updateBanner() { $('#banner').hidden = !ME || !!ME.email_verified; }
+async function emailDialog() {
+  const v = await ask('E-mail da conta', [
+    { name: 'email', label: 'Seu e-mail', type: 'email', value: ME.email || '', autocomplete: 'email', required: true },
+    { name: 'password', label: 'Senha atual', type: 'password', autocomplete: 'current-password', required: true },
+  ], 'Enviar link', 'Enviaremos um link de confirmação para este endereço.');
+  if (!v) return;
+  try { await api('email_set', { body: v }); toast('Link enviado. Verifique sua caixa de entrada.'); } catch (ex) { toast(ex.message); }
+}
+$('#bannerBtn').onclick = emailDialog;
+$('#mailBtn').onclick = emailDialog;
 
 /* ---------- app ---------- */
 async function startApp() {
   $('#auth').hidden = true; $('#app').hidden = false;
   $('#meName').textContent = ME.name;
   $('#usersBtn').hidden = !ME.is_admin;
+  updateBanner();
   await loadPages(); await loadLinks();
   if (!pages.some(p => !p.trashed)) {
     const r = await api('page_create', { body: { title: 'Primeiros passos', icon: '👋', content: WELCOME() } });
@@ -762,9 +828,22 @@ function toast(msg) {
 /* ---------- início ---------- */
 (async () => {
   try {
-    const r = await api('me');
-    CSRF = r.csrf; ME = r.user;
-    if (ME) await startApp(); else showAuth(r.setup);
+    const qs = new URLSearchParams(location.search);
+    const vt = qs.get('verify'), rt = qs.get('reset');
+    if (vt || rt) history.replaceState(null, '', location.pathname + location.hash);
+    let r = await api('me');
+    CSRF = r.csrf; SIGNUP = r.signup;
+    let vOk = false, vErr = '';
+    if (vt) {
+      try { await api('verify', { body: { token: vt } }); vOk = true; r = await api('me'); CSRF = r.csrf; }
+      catch (ex) { vErr = ex.message; }
+    }
+    ME = r.user;
+    if (ME) { await startApp(); if (vOk) toast('E-mail confirmado!'); else if (vErr) toast(vErr); return; }
+    showAuth(r.setup);
+    if (rt) { resetToken = rt; setMode('reset'); }
+    else if (vOk) setMode('login', 'E-mail confirmado! Entre para continuar.');
+    else if (vErr) setMode('login', null, vErr);
   } catch (ex) {
     document.body.textContent = 'Não foi possível conectar ao servidor: ' + ex.message;
   }
