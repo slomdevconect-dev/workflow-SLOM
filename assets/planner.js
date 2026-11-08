@@ -283,7 +283,8 @@
     host.textContent = '';
     ({ board: renderBoard, list: renderList, cal: renderCalendar })[F.view](host);
     const open = visible().filter(t => t.status !== 'done').length;
-    const c = $('#pcount'); if (c) const n = visible().length; c.textContent = `${n} tarefa${n === 1 ? '' : 's'} · ${open} em aberto`;
+    const c = $('#pcount');
+    if (c) { const n = visible().length; c.textContent = `${n} tarefa${n === 1 ? '' : 's'} · ${open} em aberto`; }
   }
   function toolbar() {
     const sel = (opts, val, fn) => { const e = h('select', { class: 'fsel', onchange: ev => { fn(ev.target.value); draw(); renderProjects(); } }, ...opts.map(([v, l]) => h('option', { value: v }, l))); e.value = val; return e; };
