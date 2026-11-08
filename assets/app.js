@@ -19,7 +19,7 @@ function h(tag, props = {}, ...kids) {
 }
 
 let CSRF = '', ME = null, pages = [], cur = null, blocks = [];
-let dirty = false, saveT = null, showingTrash = false, edges = [], serverNow = 0;
+let dirty = false, saveT = null, showingTrash = false, edges = [], serverNow = 0, section = 'home';
 const expanded = new Set(JSON.parse(store.get('expanded') || '[]'));
 
 /* ---------- API ---------- */
@@ -227,16 +227,19 @@ $('#mailBtn').onclick = emailDialog;
 async function startApp() {
   $('#auth').hidden = true; $('#app').hidden = false;
   $('#meName').textContent = ME.name;
-  $('#usersBtn').hidden = !ME.is_admin;
-  updateBanner();
+  updateBanner(); renderTabs();
+  if (ME.is_admin) return go('admin');
   await loadPages(); await loadLinks();
   if (!pages.some(p => !p.trashed)) {
     const r = await api('page_create', { body: { title: 'Primeiros passos', icon: 'i:49', content: WELCOME() } });
     pages.push(r.page);
   }
-  const want = +location.hash.slice(2) || +store.get('last');
-  const live = pages.filter(p => !p.trashed);
-  await openPage((live.find(p => p.id === want) || live[0]).id, false);
+  const hs = location.hash.slice(1), note = /^p(\d+)$/.exec(hs);
+  if (note) {
+    const p = pages.find(x => x.id === +note[1] && !x.trashed);
+    if (p) { await openPage(p.id, false); return; }
+  }
+  await go(SECTIONS.some(x => x.id === hs && !x.admin) ? hs : 'home');
 }
 async function loadLinks() { try { edges = (await api('links')).edges; } catch {} }
 async function loadPages() {
@@ -328,10 +331,6 @@ async function trashPage(id) {
   } catch (ex) { toast(ex.message); }
 }
 $('#newRoot').onclick = () => createPage(null);
-$('#homeBtn').onclick = () => {
-  const p = pages.find(x => x.id === +store.get('last') && !x.trashed) || pages.find(x => !x.trashed);
-  p ? openPage(p.id) : renderHome();
-};
 function pickIcon() {
   const choose = v => { cur.icon = v; touch(); syncMeta(); renderPage(); dlg.close(); };
   const grid = h('div', { class: 'icongrid' }, ...ICON_NAMES.map((n, i) => h('button', { type: 'button', title: n, onclick: () => choose('i:' + i) }, pic(n))));
@@ -348,6 +347,7 @@ $('#scrim').onclick = () => $('#app').classList.remove('open');
 /* ---------- página ---------- */
 async function openPage(id, pushHash = true) {
   await flush();
+  setSection('notes');
   try {
     const { page } = await api('page', { q: '&id=' + id });
     cur = page; showingTrash = false;
@@ -701,8 +701,11 @@ function renderRefs() {
 $('#graphBtn').onclick = () => showGraph();
 async function showGraph() {
   await flush(); await loadPages(); await loadLinks();
-  cur = null; showingTrash = false; $('#crumbs').textContent = 'Grafo de ideias'; renderTree();
+  cur = null; showingTrash = false; setSection('notes'); $('#crumbs').textContent = 'Grafo de ideias'; renderTree();
   $('#app').classList.remove('open');
+  drawGraph({ pages, edges, onOpen: id => openPage(id) });
+}
+function drawGraph(o) {
   const view = $('#view');
   view.classList.add('flat');
   const canvas = h('canvas');
@@ -717,15 +720,15 @@ async function showGraph() {
   }
   const zbtn = (l, f) => h('button', { class: 'btn', type: 'button', onclick: () => zoomAt(W / 2, H / 2, f) }, l);
   const wrap = h('div', { class: 'graph' }, canvas,
-    h('div', { class: 'gtools' }, q, h('label', { class: 'gchk' }, tc, 'Hierarquia'), zbtn('＋', 1.25), zbtn('－', .8)),
+    h('div', { class: 'gtools' }, o.back ? h('button', { class: 'btn', type: 'button', onclick: o.back.fn }, '← ' + o.back.label) : null, q, h('label', { class: 'gchk' }, tc, 'Hierarquia'), zbtn('＋', 1.25), zbtn('－', .8)),
     h('div', { class: 'glegend' }, 'Linhas brilhantes: [[links]] · tracejadas: hierarquia · arraste os neurônios · clique para abrir'));
   view.replaceChildren(wrap);
   const ctx = canvas.getContext('2d');
 
-  const live = pages.filter(p => !p.trashed);
+  const live = o.pages.filter(p => !p.trashed);
   const N = live.map(p => ({ id: p.id, t: p.title || 'Sem título', x: (Math.random() - .5) * 400, y: (Math.random() - .5) * 400, vx: 0, vy: 0, deg: 0 }));
   const byId = new Map(N.map(n => [n.id, n]));
-  const L = edges.map(e => ({ a: byId.get(e.from), b: byId.get(e.to) })).filter(l => l.a && l.b);
+  const L = o.edges.map(e => ({ a: byId.get(e.from), b: byId.get(e.to) })).filter(l => l.a && l.b);
   const T = live.filter(p => p.parent_id != null && byId.has(p.parent_id)).map(p => ({ a: byId.get(p.id), b: byId.get(p.parent_id) }));
   [...L, ...T].forEach(l => { l.a.deg++; l.b.deg++; });
   N.forEach(n => { n.r = 5 + Math.sqrt(n.deg) * 2.6; });
@@ -838,7 +841,7 @@ async function showGraph() {
       tx += e.clientX - pan.x; ty += e.clientY - pan.y; pan = { x: e.clientX, y: e.clientY };
     } else { hover = hit(cx, cy); canvas.style.cursor = hover ? 'pointer' : 'grab'; }
   });
-  const up = () => { if (drag && moved < 4) openPage(drag.id); drag = null; pan = null; };
+  const up = () => { if (drag && moved < 4) o.onOpen(drag.id); drag = null; pan = null; };
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
@@ -852,6 +855,7 @@ async function showGraph() {
 /* ---------- lixeira ---------- */
 $('#trashBtn').onclick = async () => {
   await flush();
+  setSection('notes');
   await loadPages();
   showingTrash = true; cur = null; renderCrumbs(); renderTree();
   const list = h('div', { class: 'list' });
@@ -892,10 +896,8 @@ $('#pwBtn').onclick = async () => {
     toast('Enviamos o link para ' + r.email);
   } catch (ex) { toast(ex.message); if (ex.status === 409) emailDialog(); }
 };
-$('#usersBtn').onclick = () => showAdmin();
 async function showAdmin() {
-  await flush(); cur = null; showingTrash = false;
-  $('#crumbs').textContent = 'Administração'; renderTree(); $('#app').classList.remove('open');
+  await flush(); cur = null; showingTrash = false; setSection('admin'); $('#app').classList.remove('open');
   let data;
   try { data = await api('admin_users'); } catch (ex) { return toast(ex.message); }
   const users = data.users;
@@ -969,6 +971,50 @@ function toast(msg) {
   t.textContent = msg; t.hidden = false;
   clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3500);
 }
+
+/* ---------- abas (secoes) ---------- */
+const SECTIONS = [
+  { id: 'home', n: 'Início', ic: 'home' },
+  { id: 'tasks', n: 'Tarefas', ic: 'kanban' },
+  { id: 'notes', n: 'Anotações', ic: 'notebook' },
+  { id: 'team', n: 'Equipe', ic: 'team' },
+  { id: 'admin', n: 'Administração', ic: 'settings', admin: true },
+];
+const modules = {};
+function renderTabs() {
+  const t = $('#tabs'); t.textContent = '';
+  if (!ME) return;
+  SECTIONS.filter(s => ME.is_admin ? s.admin : !s.admin).forEach(s =>
+    t.append(h('button', { class: 'tab' + (s.id === section ? ' on' : ''), onclick: () => go(s.id) }, pic(s.ic), h('span', {}, s.n))));
+}
+function renderCtx() {
+  ['Home', 'Tasks', 'Notes', 'Team'].forEach(n => { $('#ctx' + n).hidden = section !== n.toLowerCase(); });
+  $('#subbar').hidden = section !== 'notes';
+  const m = modules[section]; if (m && m.ctx) m.ctx();
+}
+function setSection(id) { if (section !== id) { section = id; renderTabs(); renderCtx(); } }
+async function go(id, arg) {
+  if (section === 'notes') await flush();
+  section = id; store.set('section', id);
+  if (id !== 'notes') { cur = null; showingTrash = false; }
+  renderTabs(); renderCtx();
+  $('#app').classList.remove('open');
+  if (id !== 'notes') history.replaceState(null, '', '#' + id);
+  if (id === 'notes') {
+    const live = pages.filter(p => !p.trashed);
+    const p = live.find(x => x.id === +store.get('last')) || live[0];
+    return p ? openPage(p.id) : renderHome();
+  }
+  if (id === 'admin') return showAdmin();
+  const m = modules[id];
+  if (m) await m.render(arg);
+}
+window.SLOM = {
+  api, h, pic, ask, toast, store, setView, go, flush, drawGraph, dlg, ICON_NAMES,
+  me: () => ME, section: () => section,
+  register: (id, m) => { modules[id] = m; },
+};
+(window.__mods || []).forEach(f => f(window.SLOM));
 
 /* ---------- início ---------- */
 (async () => {

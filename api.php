@@ -74,6 +74,37 @@ CREATE TABLE IF NOT EXISTS throttle (k TEXT NOT NULL, ts INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_throttle ON throttle(k, ts);
 ");
 
+$db->exec("
+CREATE TABLE IF NOT EXISTS projects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#4da3ff',
+  created_by INTEGER, created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'todo', priority TEXT NOT NULL DEFAULT 'medium',
+  assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  creator_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  due_date TEXT, labels TEXT NOT NULL DEFAULT '[]', checklist TEXT NOT NULL DEFAULT '[]',
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status, position);
+CREATE TABLE IF NOT EXISTS task_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  body TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, user_id INTEGER,
+  kind TEXT NOT NULL, task_id INTEGER, text TEXT NOT NULL
+);
+");
+if (!(int)$db->query('SELECT COUNT(*) FROM projects')->fetchColumn())
+    $db->exec("INSERT INTO projects (name, color, created_at) VALUES ('Geral', '#4da3ff', " . time() . ")");
+
 $CFG = is_file($dir . '/config.php') ? (require $dir . '/config.php') : [];
 require __DIR__ . '/lib/mail.php';
 
@@ -192,6 +223,98 @@ function needAdmin(?array $u): array {
 }
 function adminLog(PDO $db, int $adminId, string $action, string $target): void {
     $db->prepare('INSERT INTO admin_log (ts, admin_id, action, target) VALUES (?, ?, ?, ?)')->execute([time(), $adminId, $action, $target]);
+}
+
+
+const STATUSES = ['backlog', 'todo', 'doing', 'review', 'done'];
+const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+const STATUS_LABEL = ['backlog' => 'Backlog', 'todo' => 'A fazer', 'doing' => 'Em andamento', 'review' => 'Em revisão', 'done' => 'Concluído'];
+
+function needMember(?array $u): array {
+    $u = needUser($u);
+    if ($u['is_admin']) fail('Disponível apenas para membros da equipe', 403);
+    return $u;
+}
+function memberExists(PDO $db, int $id): bool {
+    $s = $db->prepare('SELECT 1 FROM users WHERE id = ? AND is_admin = 0 AND disabled = 0');
+    $s->execute([$id]);
+    return (bool)$s->fetch();
+}
+function actLog(PDO $db, int $uid, string $kind, ?int $taskId, string $text): void {
+    $db->prepare('INSERT INTO activity (ts, user_id, kind, task_id, text) VALUES (?, ?, ?, ?, ?)')->execute([time(), $uid, $kind, $taskId, mb_substr($text, 0, 300)]);
+}
+function taskOut(array $r): array {
+    $r['labels'] = json_decode($r['labels'], true) ?: [];
+    $r['checklist'] = json_decode($r['checklist'], true) ?: [];
+    foreach (['id', 'project_id', 'assignee_id', 'creator_id', 'position', 'created_at', 'updated_at', 'completed_at', 'comments'] as $k)
+        if (isset($r[$k])) $r[$k] = (int)$r[$k];
+    return $r;
+}
+function cleanTask(PDO $db, array $b): array {
+    $title = trim((string)($b['title'] ?? ''));
+    if ($title === '' || mb_strlen($title) > 200) fail('Informe um título (até 200 caracteres)');
+    $desc = (string)($b['description'] ?? '');
+    if (mb_strlen($desc) > 5000) fail('Descrição muito longa');
+    $status = (string)($b['status'] ?? 'todo');
+    $prio = (string)($b['priority'] ?? 'medium');
+    if (!in_array($status, STATUSES, true)) fail('Status inválido');
+    if (!in_array($prio, PRIORITIES, true)) fail('Prioridade inválida');
+    $as = $b['assignee_id'] ?? null;
+    $as = ($as === null || $as === '') ? null : (int)$as;
+    if ($as !== null && !memberExists($db, $as)) fail('Responsável inválido');
+    $pr = $b['project_id'] ?? null;
+    $pr = ($pr === null || $pr === '') ? null : (int)$pr;
+    if ($pr !== null) {
+        $e = $db->prepare('SELECT 1 FROM projects WHERE id = ?');
+        $e->execute([$pr]);
+        if (!$e->fetch()) fail('Projeto inválido');
+    }
+    $due = $b['due_date'] ?? null;
+    if ($due === '' ) $due = null;
+    if ($due !== null && (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', (string)$due, $m) || !checkdate((int)$m[2], (int)$m[3], (int)$m[1]))) fail('Data inválida');
+    $labels = [];
+    foreach ((array)($b['labels'] ?? []) as $l) {
+        $l = trim((string)$l);
+        if ($l !== '' && !in_array($l, $labels, true)) $labels[] = mb_substr($l, 0, 24);
+        if (count($labels) >= 8) break;
+    }
+    $check = [];
+    foreach ((array)($b['checklist'] ?? []) as $c) {
+        if (!is_array($c)) continue;
+        $t = trim((string)($c['t'] ?? ''));
+        if ($t !== '') $check[] = ['t' => mb_substr($t, 0, 200), 'd' => !empty($c['d'])];
+        if (count($check) >= 50) break;
+    }
+    return ['title' => $title, 'description' => $desc, 'status' => $status, 'priority' => $prio,
+            'assignee_id' => $as, 'project_id' => $pr, 'due_date' => $due,
+            'labels' => json_encode($labels, JSON_UNESCAPED_UNICODE), 'checklist' => json_encode($check, JSON_UNESCAPED_UNICODE)];
+}
+function linkEdges(PDO $db, int $uid): array {
+    $s = $db->prepare('SELECT id, title, content FROM pages WHERE user_id = ? AND trashed = 0 ORDER BY id');
+    $s->execute([$uid]);
+    $rows = $s->fetchAll();
+    $byTitle = [];
+    foreach ($rows as $r) {
+        $k = mb_strtolower(trim($r['title']));
+        if ($k !== '' && !isset($byTitle[$k])) $byTitle[$k] = (int)$r['id'];
+    }
+    $edges = []; $seen = [];
+    foreach ($rows as $r) {
+        $list = json_decode($r['content'], true);
+        if (!is_array($list)) continue;
+        foreach ($list as $b) {
+            if (!is_array($b) || !is_string($b['x'] ?? null)) continue;
+            if (!preg_match_all('/\[\[([^\[\]\n]{1,200})\]\]/u', $b['x'], $m)) continue;
+            foreach ($m[1] as $t) {
+                $to = $byTitle[mb_strtolower(trim($t))] ?? null;
+                $key = $r['id'] . '>' . $to;
+                if ($to === null || $to === (int)$r['id'] || isset($seen[$key])) continue;
+                $seen[$key] = 1;
+                $edges[] = ['from' => (int)$r['id'], 'to' => $to];
+            }
+        }
+    }
+    return $edges;
 }
 
 function ownPage(PDO $db, int $uid, int $id): array {
@@ -416,31 +539,135 @@ try {
 
         case 'links':
             $u = needUser($user);
-            $s = $db->prepare('SELECT id, title, content FROM pages WHERE user_id = ? AND trashed = 0 ORDER BY id');
-            $s->execute([$u['id']]);
-            $rows = $s->fetchAll();
-            $byTitle = [];
-            foreach ($rows as $r) {
-                $k = mb_strtolower(trim($r['title']));
-                if ($k !== '' && !isset($byTitle[$k])) $byTitle[$k] = (int)$r['id'];
+            out(['edges' => linkEdges($db, (int)$u['id'])]);
+
+        case 'tasks_all':
+            needMember($user);
+            $rows = $db->query('SELECT t.*, (SELECT COUNT(*) FROM task_comments c WHERE c.task_id = t.id) AS comments FROM tasks t ORDER BY t.position, t.id')->fetchAll();
+            out([
+                'tasks' => array_map('taskOut', $rows),
+                'projects' => $db->query('SELECT id, name, color FROM projects ORDER BY id')->fetchAll(),
+                'members' => $db->query('SELECT id, name, email FROM users WHERE is_admin = 0 AND disabled = 0 ORDER BY id')->fetchAll(),
+                'now' => time(),
+            ]);
+
+        case 'task_save':
+            $u = needMember($user);
+            $c = cleanTask($db, $body);
+            $id = (int)($body['id'] ?? 0);
+            if ($id) {
+                $s = $db->prepare('SELECT * FROM tasks WHERE id = ?');
+                $s->execute([$id]);
+                $old = $s->fetch() ?: fail('Tarefa não encontrada', 404);
+                $done = $c['status'] === 'done' ? ($old['completed_at'] ?: time()) : null;
+                $db->prepare('UPDATE tasks SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, assignee_id = ?, due_date = ?, labels = ?, checklist = ?, completed_at = ?, updated_at = ? WHERE id = ?')
+                   ->execute([$c['project_id'], $c['title'], $c['description'], $c['status'], $c['priority'], $c['assignee_id'], $c['due_date'], $c['labels'], $c['checklist'], $done, time(), $id]);
+                if ($old['status'] !== $c['status'])
+                    actLog($db, (int)$u['id'], $c['status'] === 'done' ? 'done' : 'move', $id, ($c['status'] === 'done' ? 'concluiu' : 'moveu para ' . STATUS_LABEL[$c['status']]) . ' “' . $c['title'] . '”');
+            } else {
+                $pos = $db->prepare('SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE status = ?');
+                $pos->execute([$c['status']]);
+                $db->prepare('INSERT INTO tasks (project_id, title, description, status, priority, assignee_id, creator_id, due_date, labels, checklist, position, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                   ->execute([$c['project_id'], $c['title'], $c['description'], $c['status'], $c['priority'], $c['assignee_id'], $u['id'], $c['due_date'], $c['labels'], $c['checklist'], (int)$pos->fetchColumn(), time(), time(), $c['status'] === 'done' ? time() : null]);
+                $id = (int)$db->lastInsertId();
+                actLog($db, (int)$u['id'], 'new', $id, 'criou “' . $c['title'] . '”');
             }
-            $edges = []; $seen = [];
-            foreach ($rows as $r) {
-                $list = json_decode($r['content'], true);
-                if (!is_array($list)) continue;
-                foreach ($list as $b) {
-                    if (!is_array($b) || !is_string($b['x'] ?? null)) continue;
-                    if (!preg_match_all('/\[\[([^\[\]\n]{1,200})\]\]/u', $b['x'], $m)) continue;
-                    foreach ($m[1] as $t) {
-                        $to = $byTitle[mb_strtolower(trim($t))] ?? null;
-                        $key = $r['id'] . '>' . $to;
-                        if ($to === null || $to === (int)$r['id'] || isset($seen[$key])) continue;
-                        $seen[$key] = 1;
-                        $edges[] = ['from' => (int)$r['id'], 'to' => $to];
-                    }
-                }
-            }
-            out(['edges' => $edges]);
+            out(['ok' => true, 'id' => $id]);
+
+        case 'task_move':
+            $u = needMember($user);
+            $id = (int)($body['id'] ?? 0);
+            $st = (string)($body['status'] ?? '');
+            if (!in_array($st, STATUSES, true)) fail('Status inválido');
+            $s = $db->prepare('SELECT * FROM tasks WHERE id = ?');
+            $s->execute([$id]);
+            $t = $s->fetch() ?: fail('Tarefa não encontrada', 404);
+            $q = $db->prepare('SELECT id FROM tasks WHERE status = ? AND id <> ? ORDER BY position, id');
+            $q->execute([$st, $id]);
+            $list = $q->fetchAll(PDO::FETCH_COLUMN);
+            array_splice($list, min(max(0, (int)($body['index'] ?? 0)), count($list)), 0, [$id]);
+            $db->beginTransaction();
+            $up = $db->prepare('UPDATE tasks SET position = ? WHERE id = ?');
+            foreach ($list as $i => $tid) $up->execute([$i, $tid]);
+            $done = $st === 'done' ? ($t['completed_at'] ?: time()) : null;
+            $db->prepare('UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?')->execute([$st, $done, time(), $id]);
+            $db->commit();
+            if ($t['status'] !== $st)
+                actLog($db, (int)$u['id'], $st === 'done' ? 'done' : 'move', $id, ($st === 'done' ? 'concluiu' : 'moveu para ' . STATUS_LABEL[$st]) . ' “' . $t['title'] . '”');
+            out(['ok' => true]);
+
+        case 'task_delete':
+            $u = needMember($user);
+            $id = (int)($body['id'] ?? 0);
+            $s = $db->prepare('SELECT title FROM tasks WHERE id = ?');
+            $s->execute([$id]);
+            $title = $s->fetchColumn();
+            if ($title === false) fail('Tarefa não encontrada', 404);
+            $db->prepare('DELETE FROM tasks WHERE id = ?')->execute([$id]);
+            actLog($db, (int)$u['id'], 'del', null, 'excluiu “' . $title . '”');
+            out(['ok' => true]);
+
+        case 'task_comments':
+            needMember($user);
+            $s = $db->prepare('SELECT c.id, c.body, c.created_at, c.user_id, u.name FROM task_comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.task_id = ? ORDER BY c.id');
+            $s->execute([(int)($_GET['id'] ?? 0)]);
+            out(['comments' => $s->fetchAll()]);
+
+        case 'task_comment_add':
+            $u = needMember($user);
+            $id = (int)($body['id'] ?? 0);
+            $text = trim((string)($body['body'] ?? ''));
+            if ($text === '' || mb_strlen($text) > 2000) fail('Escreva um comentário (até 2000 caracteres)');
+            $s = $db->prepare('SELECT title FROM tasks WHERE id = ?');
+            $s->execute([$id]);
+            $title = $s->fetchColumn();
+            if ($title === false) fail('Tarefa não encontrada', 404);
+            $db->prepare('INSERT INTO task_comments (task_id, user_id, body, created_at) VALUES (?, ?, ?, ?)')->execute([$id, $u['id'], $text, time()]);
+            actLog($db, (int)$u['id'], 'comment', $id, 'comentou em “' . $title . '”');
+            out(['ok' => true]);
+
+        case 'project_save':
+            $u = needMember($user);
+            $name = trim((string)($body['name'] ?? ''));
+            $color = (string)($body['color'] ?? '#4da3ff');
+            if ($name === '' || mb_strlen($name) > 60) fail('Informe o nome do projeto (até 60 caracteres)');
+            if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) fail('Cor inválida');
+            $id = (int)($body['id'] ?? 0);
+            if ($id) $db->prepare('UPDATE projects SET name = ?, color = ? WHERE id = ?')->execute([$name, $color, $id]);
+            else $db->prepare('INSERT INTO projects (name, color, created_by, created_at) VALUES (?, ?, ?, ?)')->execute([$name, $color, $u['id'], time()]);
+            out(['ok' => true]);
+
+        case 'project_delete':
+            needMember($user);
+            $db->prepare('DELETE FROM projects WHERE id = ?')->execute([(int)($body['id'] ?? 0)]);
+            out(['ok' => true]);
+
+        case 'activity':
+            needMember($user);
+            out(['items' => $db->query('SELECT a.ts, a.kind, a.task_id, a.text, a.user_id, u.name FROM activity a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 25')->fetchAll()]);
+
+        case 'team':
+            needMember($user);
+            $rows = $db->query('SELECT u.id, u.name, u.email, u.last_login, u.created_at,
+                (SELECT COUNT(*) FROM pages p WHERE p.user_id = u.id AND p.trashed = 0) AS pages,
+                (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id = u.id AND t.status <> \'done\') AS open_tasks,
+                (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id = u.id AND t.status = \'done\') AS done_tasks
+                FROM users u WHERE u.is_admin = 0 AND u.disabled = 0 ORDER BY u.id')->fetchAll();
+            out(['members' => $rows]);
+
+        case 'member_pages':
+            needMember($user);
+            $mid = (int)($_GET['uid'] ?? 0);
+            if (!memberExists($db, $mid)) fail('Membro não encontrado', 404);
+            $s = $db->prepare('SELECT id, parent_id, title, icon, position, updated_at FROM pages WHERE user_id = ? AND trashed = 0 ORDER BY position, id');
+            $s->execute([$mid]);
+            out(['pages' => $s->fetchAll(), 'edges' => linkEdges($db, $mid)]);
+
+        case 'member_page':
+            needMember($user);
+            $s = $db->prepare('SELECT p.id, p.user_id, p.parent_id, p.title, p.icon, p.content, p.updated_at FROM pages p JOIN users u ON u.id = p.user_id WHERE p.id = ? AND p.trashed = 0 AND u.is_admin = 0 AND u.disabled = 0');
+            $s->execute([(int)($_GET['id'] ?? 0)]);
+            out(['page' => $s->fetch() ?: fail('Página não encontrada', 404)]);
 
         case 'page':
             $u = needUser($user);

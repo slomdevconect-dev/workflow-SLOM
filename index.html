@@ -8,7 +8,7 @@
 <link rel="icon" type="image/png" href="assets/img/favicon-64.png">
 <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
 <meta name="theme-color" content="#0b1220">
-<link rel="stylesheet" href="assets/app.css?v=6">
+<link rel="stylesheet" href="assets/app.css?v=7">
 </head>
 <body>
 <div id="auth" class="auth" hidden>
@@ -35,10 +35,11 @@
   <main class="main">
     <div id="banner" class="banner" hidden><img class="pi" src="assets/img/icons/bell.png" alt=""><span>Confirme seu e-mail para proteger a conta e poder recuperar a senha.</span><button class="btn" id="bannerBtn">Confirmar e-mail</button></div>
     <header class="top">
-      <div id="crumbs" class="crumbs"></div>
+      <nav id="tabs" class="tabs" aria-label="Seções"></nav>
       <span id="status" class="status"></span>
       <button class="icon menu" id="menuBtn" aria-label="Abrir menu" data-i="menu"></button>
     </header>
+    <div id="subbar" class="subbar" hidden><div id="crumbs" class="crumbs"></div></div>
     <section id="view" class="view"></section>
   </main>
   <div id="scrim" class="scrim"></div>
@@ -48,17 +49,40 @@
       <img class="side-logo" src="assets/img/logo-app.png" alt="SLOM DEV">
       <div class="who"><b>Workflow SLOM</b><small id="meName"></small></div>
     </div>
-    <div class="side-actions">
-      <button class="nav" id="homeBtn" title="Início"><img class="ni" src="assets/img/icons/home.png" alt=""><span>Início</span></button>
-      <button class="nav primary" id="newRoot" title="Nova página"><img class="ni" src="assets/img/icons/add.png" alt=""><span>Nova página</span></button>
-      <button class="nav" id="searchBtn" title="Buscar"><img class="ni" src="assets/img/icons/search.png" alt=""><span>Buscar</span></button>
-      <button class="nav" id="graphBtn" title="Grafo de ideias"><img class="ni" src="assets/img/icons/share.png" alt=""><span>Grafo de ideias</span></button>
+
+    <div id="ctxHome" class="ctx" hidden>
+      <div class="side-actions">
+        <button class="nav primary" id="homeNewTask" title="Nova tarefa"><img class="ni" src="assets/img/icons/add.png" alt=""><span>Nova tarefa</span></button>
+        <button class="nav" id="homeToTasks" title="Quadro de tarefas"><img class="ni" src="assets/img/icons/kanban.png" alt=""><span>Quadro de tarefas</span></button>
+        <button class="nav" id="homeToNotes" title="Minhas anotações"><img class="ni" src="assets/img/icons/notebook.png" alt=""><span>Minhas anotações</span></button>
+        <button class="nav" id="homeToTeam" title="Equipe"><img class="ni" src="assets/img/icons/team.png" alt=""><span>Equipe</span></button>
+      </div>
     </div>
-    <input id="search" class="search" placeholder="Buscar páginas…" type="search" aria-label="Buscar páginas">
-    <nav id="tree" class="tree"></nav>
+
+    <div id="ctxTasks" class="ctx" hidden>
+      <div class="side-actions"><button class="nav primary" id="newTaskBtn" title="Nova tarefa"><img class="ni" src="assets/img/icons/add.png" alt=""><span>Nova tarefa</span></button></div>
+      <div class="ctx-title">Projetos</div>
+      <div id="projList" class="plist"></div>
+      <div class="side-actions"><button class="nav" id="newProjectBtn" title="Novo projeto"><img class="ni" src="assets/img/icons/folder-plus.png" alt=""><span>Novo projeto</span></button></div>
+    </div>
+
+    <div id="ctxNotes" class="ctx" hidden>
+      <div class="side-actions">
+        <button class="nav primary" id="newRoot" title="Nova página"><img class="ni" src="assets/img/icons/add.png" alt=""><span>Nova página</span></button>
+        <button class="nav" id="searchBtn" title="Buscar"><img class="ni" src="assets/img/icons/search.png" alt=""><span>Buscar</span></button>
+        <button class="nav" id="graphBtn" title="Grafo de ideias"><img class="ni" src="assets/img/icons/share.png" alt=""><span>Grafo de ideias</span></button>
+        <button class="nav" id="trashBtn" title="Lixeira"><img class="ni" src="assets/img/icons/trash.png" alt=""><span>Lixeira</span></button>
+      </div>
+      <input id="search" class="search" placeholder="Buscar páginas…" type="search" aria-label="Buscar páginas">
+      <nav id="tree" class="tree"></nav>
+    </div>
+
+    <div id="ctxTeam" class="ctx" hidden>
+      <div class="ctx-title">Membros</div>
+      <div id="memberList" class="plist"></div>
+    </div>
+
     <div class="side-foot">
-      <button class="nav" id="trashBtn" title="Lixeira"><img class="ni" src="assets/img/icons/trash.png" alt=""><span>Lixeira</span></button>
-      <button class="nav" id="usersBtn" title="Administração" hidden><img class="ni" src="assets/img/icons/team.png" alt=""><span>Administração</span></button>
       <button class="nav" id="mailBtn" title="E-mail da conta"><img class="ni" src="assets/img/icons/shield.png" alt=""><span>E-mail da conta</span></button>
       <button class="nav" id="pwBtn" title="Alterar senha"><img class="ni" src="assets/img/icons/lock.png" alt=""><span>Alterar senha</span></button>
       <button class="nav" id="themeBtn" title="Aparência"><img class="ni" id="themeIcon" src="assets/img/icons/moon.png" alt=""><span>Aparência</span></button>
@@ -69,6 +93,8 @@
 
 <div id="slash" class="slash" hidden></div>
 <dialog id="dlg" class="dlg"></dialog>
-<script src="assets/app.js?v=6"></script>
+<script src="assets/planner.js?v=7"></script>
+<script src="assets/team.js?v=7"></script>
+<script src="assets/app.js?v=7"></script>
 </body>
 </html>
