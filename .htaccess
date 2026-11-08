@@ -1,4 +1,5 @@
 Options -Indexes
+RedirectMatch 404 /\.git
 RewriteEngine On
 RewriteCond %{HTTPS} off
 RewriteCond %{HTTP:X-Forwarded-Proto} !https
