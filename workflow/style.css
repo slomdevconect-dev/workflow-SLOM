@@ -1,0 +1,28 @@
+:root{--bg:#0b1020;--fg:#e8ecf8;--mut:#93a0bd;--card:#141b33;--bd:#222c4d}
+:root[data-theme=light]{--bg:#f6f7fb;--fg:#12172b;--mut:#5b6785;--card:#fff;--bd:#e3e7f2}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
+.hero{padding:24px 20px 56px;max-width:1000px;margin:auto}
+nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:56px}
+.logo{font-weight:800;letter-spacing:.2em;font-size:1.2rem}
+button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:10px;padding:6px 12px;cursor:pointer;font:inherit}
+h1{font-size:clamp(2rem,6vw,3.6rem);line-height:1.1;margin:0 0 16px;background:linear-gradient(90deg,#8b5cf6,#0ea5e9,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--mut);max-width:60ch;font-size:1.1rem}
+main{max-width:1000px;margin:auto;padding:0 20px}
+h2{font-size:1.1rem;text-transform:uppercase;letter-spacing:.1em;color:var(--mut)}
+.pipeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.step{background:var(--card);border:1px solid var(--bd);border-top:4px solid var(--c);border-radius:14px;padding:14px;text-align:left;transition:.2s}
+.step:hover,.step.on{transform:translateY(-3px);border-color:var(--c);box-shadow:0 8px 24px -12px var(--c)}
+.step b{display:block}.step small{color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:20px}
+.detalhe{margin-top:14px}
+.detalhe h3{margin:0 0 6px;color:var(--c)}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.io span{display:block;font-size:.75rem;text-transform:uppercase;color:var(--mut)}
+.detalhe ul{padding:0;margin:0}
+.detalhe li{margin:4px 0;list-style:none}
+.detalhe li:before{content:"✓ ";color:var(--c)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin-top:40px}
+.stack{display:grid;gap:10px}
+.stack .card{padding:14px}.stack b{display:block}.stack span{color:var(--mut);font-size:.9rem}
+footer{text-align:center;color:var(--mut);padding:48px 0}

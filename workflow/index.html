@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLOM | Workflow de Desenvolvimento</title>
+<meta name="description" content="Fluxo de desenvolvimento da SLOM, do Backlog ao Deploy.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <nav><span class="logo">SLOM</span><button id="theme" aria-label="Alternar tema">◐</button></nav>
+  <h1 id="tagline"></h1>
+  <p id="resumo"></p>
+</header>
+<main>
+  <section><h2>Pipeline</h2>
+    <div id="pipeline" class="pipeline"></div>
+    <article id="detalhe" class="card detalhe"></article>
+  </section>
+  <section class="cols">
+    <div><h2>Rituais</h2><div id="rituais" class="stack"></div></div>
+    <div><h2>Branches</h2><div id="branches" class="stack"></div></div>
+  </section>
+</main>
+<footer>© <span id="ano"></span> SLOM</footer>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
