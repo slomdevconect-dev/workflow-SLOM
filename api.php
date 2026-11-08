@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 session_set_cookie_params([
     'lifetime' => 0, 'path' => '/', 'httponly' => true,
-    'samesite' => 'Lax', 'secure' => !empty($_SERVER['HTTPS']),
+    'samesite' => 'Lax', 'secure' => !empty($_SERVER['HTTPS']) || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https',
 ]);
 session_start();
 header('Content-Type: application/json; charset=utf-8');
@@ -17,7 +17,8 @@ function out($data, int $code = 200): never {
 }
 function fail(string $msg, int $code = 400): never { out(['error' => $msg], $code); }
 
-$dir = __DIR__ . '/data';
+// Em producao o banco fica fora da pasta publica (../slom-data); localmente usa ./data
+$dir = is_dir(__DIR__ . '/../slom-data') ? realpath(__DIR__ . '/../slom-data') : __DIR__ . '/data';
 if (!is_dir($dir)) mkdir($dir, 0750, true);
 if (!file_exists($dir . '/.htaccess')) file_put_contents($dir . '/.htaccess', "Require all denied\n");
 
